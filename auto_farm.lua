@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794912452
+--@@BUILD 1794919240
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3577,35 +3577,76 @@ local main = mk("Frame", { Size = UDim2.new(0, W, 0, H), Position = UDim2.new(0.
 corner(main, 12)
 stroke(main, C.line)
 do
+	-- size: fits the screen, and you can make it bigger / smaller (corner grip, or Settings)
 	local sc = mk("UIScale", { Scale = 1 }, main)
-	local function fit()
+	M.fitUI = function()
 		local cam = workspace.CurrentCamera
 		local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-		local s0 = math.min(1, (vp.X - 16) / W, (vp.Y - 16) / H)
-		sc.Scale = math.max(0.45, s0)
+		local maxS = math.min((vp.X - 16) / W, (vp.Y - 16) / H)
+		local want = tonumber(M.opt.uiScale) or 1
+		sc.Scale = math.clamp(math.min(want, maxS), 0.4, 1.6)
 	end
-	fit()
-	pcall(function() table.insert(conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit)) end)
-	-- floating button: show / hide the window (works with mouse and touch, drag it anywhere)
-	local fb = mk("TextButton", { Size = UDim2.new(0, 46, 0, 46), Position = UDim2.new(0, 12, 0.35, 0), BackgroundColor3 = C.card, Text = "AF", TextColor3 = C.accent, Font = FB, TextSize = 15, AutoButtonColor = true, ZIndex = 50 }, gui)
-	corner(fb, 23)
-	stroke(fb, C.accent, 2)
-	local downAt, downPos, startPos, moved
-	table.insert(conns, fb.InputBegan:Connect(function(i)
+	M.fitUI()
+	pcall(function() table.insert(conns, workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(M.fitUI)) end)
+	local grip = mk("TextButton", { Size = UDim2.new(0, 22, 0, 22), Position = UDim2.new(1, -22, 1, -22), BackgroundTransparency = 1, Text = "◢", TextColor3 = C.dim, Font = FB, TextSize = 16, ZIndex = 20 }, main)
+	local gStart, gScale
+	table.insert(conns, grip.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then gStart, gScale = i.Position, sc.Scale end
+	end))
+	table.insert(conns, UIS.InputChanged:Connect(function(i)
+		if gStart and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = i.Position - gStart
+			M.opt.uiScale = math.clamp(gScale * (W * gScale + (d.X + d.Y) / 2) / (W * gScale), 0.4, 1.6)
+			M.fitUI()
+		end
+	end))
+	table.insert(conns, UIS.InputEnded:Connect(function(i)
+		if gStart and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+			gStart = nil
+			pcall(function() if M.Save then M.Save() end end)
+		end
+	end))
+	-- folded: the window turns into the MOI HUB logo; tap / click it to open again, drag to move it
+	local logo = mk("ImageButton", { Size = UDim2.new(0, 58, 0, 58), Position = UDim2.new(0, 12, 0.35, 0), BackgroundColor3 = Color3.fromRGB(10, 12, 18), Image = "", ScaleType = Enum.ScaleType.Fit, AutoButtonColor = true, ZIndex = 50, Visible = false }, gui)
+	corner(logo, 12)
+	stroke(logo, C.accent, 2)
+	local logoTxt = mk("TextLabel", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, RichText = true, Text = '<font color="#FFFFFF">MOI</font>\n<font color="#FF2D55">HUB</font>', Font = Enum.Font.GothamBlack, TextSize = 15, ZIndex = 51 }, logo)
+	task.spawn(function()
+		pcall(function()
+			local file = "moihub_logo.png"
+			if not (isfile and isfile(file)) then
+				local png = game:HttpGet("https://raw.githubusercontent.com/thanasankiminoto-art/auto-farm/main/moihub.png")
+				if type(png) == "string" and #png > 500 then writefile(file, png) end
+			end
+			local get = getcustomasset or getsynasset
+			if get and isfile(file) then
+				logo.Image = get(file)
+				logoTxt.Visible = false
+				logo.BackgroundTransparency = 1
+			end
+		end)
+	end)
+	M.setOpen = function(v)
+		main.Visible = v
+		logo.Visible = not v
+	end
+	table.insert(conns, main:GetPropertyChangedSignal("Visible"):Connect(function() logo.Visible = not main.Visible end))
+	local downPos, startPos, moved
+	table.insert(conns, logo.InputBegan:Connect(function(i)
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			downAt, downPos, startPos, moved = os.clock(), i.Position, fb.Position, false
+			downPos, startPos, moved = i.Position, logo.Position, false
 		end
 	end))
 	table.insert(conns, UIS.InputChanged:Connect(function(i)
 		if downPos and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 			local d = i.Position - downPos
 			if d.Magnitude > 8 then moved = true end
-			if moved then fb.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y) end
+			if moved then logo.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y) end
 		end
 	end))
 	table.insert(conns, UIS.InputEnded:Connect(function(i)
 		if downPos and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
-			if not moved then main.Visible = not main.Visible end
+			if not moved then M.setOpen(true) end
 			downPos = nil
 		end
 	end))
@@ -4654,6 +4695,10 @@ do
 	optToggle(b, "Skip cutscenes (boss intros)", "skipCutscene")
 	optToggle(b, "Drop quests from other floors", "dropForeign")
 	optToggle(b, "Collect item orbs on the map", "orbs")
+	sliderRow(b, "Window size (%)", 40, 160, 5, function() return math.floor((tonumber(M.opt.uiScale) or 1) * 100 + 0.5) end, function(v)
+		M.opt.uiScale = v / 100
+		M.fitUI()
+	end)
 	buttonRow(b, "STOP ALL", C.red, function() stopTask() release() setNoclip(false) repaintAll() end)
 	buttonRow(b, "Unload script", nil, function() if M.Destroy then M.Destroy(true) end end)
 	local r = card(R, "Saved Settings", "F")
@@ -4680,15 +4725,7 @@ do
 	table.insert(conns, UIS.InputBegan:Connect(function(i, gp)
 		if i.KeyCode == Enum.KeyCode.RightControl then main.Visible = not main.Visible end
 	end))
-	local mini = false
-	table.insert(conns, minBtn.MouseButton1Click:Connect(function()
-		mini = not mini
-		side.Visible = not mini
-		pagesHolder.Visible = not mini
-		main.Size = mini and UDim2.new(0, 300, 0, 46) or UDim2.new(0, W, 0, H)
-		content.Size = mini and UDim2.new(1, 0, 1, 0) or UDim2.new(1, -SIDE, 1, 0)
-		content.Position = mini and UDim2.new(0, 0, 0, 0) or UDim2.new(0, SIDE, 0, 0)
-	end))
+	table.insert(conns, minBtn.MouseButton1Click:Connect(function() M.setOpen(false) end))
 end
 
 local function destroy(byUser)
@@ -4851,7 +4888,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20i loaded")
+log("AUTO v20j loaded")
 
 end, debug.traceback)
 if not __ok then
@@ -4860,7 +4897,7 @@ if not __ok then
 	__note("failed to start: " .. tostring(__err):sub(1, 150), 20)
 else
 	__g.__AutoAllErr = nil
-	__note(((UserInputService or game:GetService("UserInputService")).TouchEnabled and "loaded - tap the AF button to show / hide" or "loaded - AF button or Right Ctrl shows / hides"), 8)
+	__note("loaded - the - button folds it into the logo, tap the logo to open it", 8)
 end
 ]==]
 loadstring(getgenv().__AutoSrc)()
