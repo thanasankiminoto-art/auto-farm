@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794919240
+--@@BUILD 1794919598
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3620,7 +3620,8 @@ do
 			end
 			local get = getcustomasset or getsynasset
 			if get and isfile(file) then
-				logo.Image = get(file)
+				M.logoAsset = get(file)
+				logo.Image = M.logoAsset
 				logoTxt.Visible = false
 				logo.BackgroundTransparency = 1
 			end
@@ -3692,12 +3693,20 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-local logo = mk("Frame", { Size = UDim2.new(0, 36, 0, 36), Position = UDim2.new(0, 14, 0, 13), BackgroundColor3 = C.accent, BorderSizePixel = 0 }, head)
-corner(logo, 9)
-mk("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(150, 236, 140), Color3.fromRGB(60, 170, 110)), Rotation = 45 }, logo)
-mk("TextLabel", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "AF", TextColor3 = Color3.fromRGB(16, 30, 18), Font = FB, TextSize = 15 }, logo)
-mk("TextLabel", { Size = UDim2.new(1, -66, 0, 18), Position = UDim2.new(0, 58, 0, 14), BackgroundTransparency = 1, Text = "Auto Farm", TextColor3 = C.text, Font = FB, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left }, head)
-mk("TextLabel", { Size = UDim2.new(1, -66, 0, 14), Position = UDim2.new(0, 58, 0, 33), BackgroundTransparency = 1, Text = "v12  -  Flywood RPG", TextColor3 = C.dim, Font = F, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left }, head)
+M.VERSION = "v20k"
+do
+	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
+	corner(hl0, 9)
+	stroke(hl0, C.accent, 1.5)
+	local ht = mk("TextLabel", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, RichText = true, Text = '<font color="#FFFFFF">MOI</font>\n<font color="#FF2D55">HUB</font>', Font = Enum.Font.GothamBlack, TextSize = 10 }, hl0)
+	task.spawn(function()
+		local t0 = os.clock()
+		while not M.logoAsset and os.clock() - t0 < 30 do task.wait(0.5) end
+		if M.logoAsset then hl0.Image = M.logoAsset ht.Visible = false end
+	end)
+end
+mk("TextLabel", { Size = UDim2.new(1, -66, 0, 18), Position = UDim2.new(0, 58, 0, 14), BackgroundTransparency = 1, RichText = true, Text = 'MOI <font color="#6ED876">HUB</font>', TextColor3 = C.text, Font = FB, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left }, head)
+mk("TextLabel", { Size = UDim2.new(1, -66, 0, 14), Position = UDim2.new(0, 58, 0, 33), BackgroundTransparency = 1, Text = "Auto Farm  -  " .. M.VERSION, TextColor3 = C.dim, Font = F, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left }, head)
 
 local nav = mk("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -62 - 58), Position = UDim2.new(0, 0, 0, 62), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new() }, side)
 pad(nav, 8, 8, 4, 8)
@@ -4888,7 +4897,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20j loaded")
+log("AUTO v20k loaded")
 
 end, debug.traceback)
 if not __ok then
