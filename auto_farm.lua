@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794922949
+--@@BUILD 1794923132
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3679,19 +3679,25 @@ M.gearFarmKeys = function()
 	local sd = M.side
 	sd.gearStat = sd.gearStat or {}
 	for _, n in ipairs(M.gearNeeds or {}) do
-		local best, bestRate, untried
+		-- drops are random everywhere, so a couple of runs prove little: every place gets 3 tries,
+		-- the score is smoothed ((got + 1) / time, so one dry run doesn't rule a place out),
+		-- and every 6th run goes to the least-tried place to keep the numbers honest
+		local best, bestRate, untried, least, leastRuns
 		for _, s in ipairs(M.gearSources(n.item)) do
 			if s.farm and s.ok then
 				local st = sd.gearStat[n.item .. "|" .. s.key]
-				if not st or st.runs < 2 then
+				local runs = st and st.runs or 0
+				if runs < 3 then
 					untried = untried or s.key
 				else
-					local rate = st.gain / math.max(1, st.secs)
+					local rate = (st.gain + 1) / math.max(60, st.secs)
 					if not bestRate or rate > bestRate then best, bestRate = s.key, rate end
 				end
+				if not leastRuns or runs < leastRuns then least, leastRuns = s.key, runs end
 			end
 		end
-		local pick = untried or best
+		sd.gearPicks = (sd.gearPicks or 0) + 1
+		local pick = untried or ((sd.gearPicks % 6 == 0) and least) or best
 		if pick then
 			M.gearFarmFor = n.item
 			return { pick }
@@ -3732,10 +3738,10 @@ local function scheduler()
 			end
 			if M.scanTick() then return end
 			if M.tpTourTick() then return end
+			pcall(M.gearMeasure) -- count what the last run gave before upgrades spend it
 			M.upgradeGear()
 			pcall(M.gearTick)
 			pcall(M.learnDrops)
-			pcall(M.gearMeasure)
 			M.craftBetter()
 			M.dropForeignQuests()
 			M.collectOrbs()
@@ -3982,7 +3988,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20v"
+M.VERSION = "v20w"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5009,7 +5015,7 @@ do
 		table.sort(rows, function(a, b) return a[2] > b[2] end)
 		local t = {}
 		for i, r in ipairs(rows) do if i <= 6 then t[#t + 1] = r[1] end end
-		return #t > 0 and ("Best places so far (each is tried twice, then the best is used):\n" .. table.concat(t, "\n")) or "Each place is tried twice and timed, then the one that gives the most per hour is used."
+		return #t > 0 and ("Best places so far (each is tried 3 times, then mostly the best one; drops are random, so the numbers settle over time):\n" .. table.concat(t, "\n")) or "Each place is tried 3 times and timed, then the one that gives the most per hour is used most of the time."
 	end, 80)
 	textRow(h, "Monster drops: the game only shows what the monsters of the map you are on drop. The script remembers it for every map you visit (the TP point tour visits them all), so an item that shows \"no source\" can turn \"farmable\" later.")
 	textRow(h, "Pet and Mount: picked ones are put on as soon as you own them. They can't be farmed: the card shows where they come from (Tower floors, shop boxes bought with Bleeter Bits, chests...). The script never buys boxes.")
@@ -5254,7 +5260,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20v loaded")
+log("AUTO v20w loaded")
 
 end, debug.traceback)
 if not __ok then
