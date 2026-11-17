@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794919948
+--@@BUILD 1794920591
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3360,6 +3360,8 @@ M.gearTick = function(force)
 				M.gearState[sl.id] = "not owned yet"
 			else
 				used[copy.item] = true
+				M.gearUse = M.gearUse or {}
+				M.gearUse[sl.id] = copy.item
 				local target = (tonumber(cfg.target) or 0) > 0 and math.min(tonumber(cfg.target), myLevel) or myLevel
 				local lvl = (copy.item.Leveling and copy.item.Leveling.Level) or 1
 				local wearable = lvl <= myLevel
@@ -3695,7 +3697,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20l"
+M.VERSION = "v20m"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4041,6 +4043,13 @@ do
 		local d = data()
 		return ("Kills %s   Turned in %s   Dodged %s\nTP %s   Free stat points %s"):format(hl(M.kills), hl(M.turnedIn), hl(M.dodges), hl(open .. "/" .. all), hl(d and d.Data.Stats.Points or 0))
 	end, 34)
+	textRow(st, function()
+		local d = data()
+		if not d then return "" end
+		local eq = d.Data.Equipped
+		local function one(x) return type(x) == "table" and (x.Name .. " " .. hl("Lv " .. tostring(x.Leveling and x.Leveling.Level or "?"))) or '<font color="#7d857f">empty</font>' end
+		return ("Hand 1: %s\nHand 2: %s\nArmor: %s"):format(one(eq.Hands and eq.Hands[1]), one(eq.Hands and eq.Hands[2]), one(eq.Armor))
+	end, 50)
 	local lg = card(R, "Log", "L")
 	textRow(lg, function()
 		local t = {}
@@ -4544,7 +4553,13 @@ do
 			local own
 			if #copies == 0 then own = "not owned"
 			elseif sl.flat then own = ("own %d%s"):format(#copies, copies[1].item.Variant and (", best " .. copies[1].item.Variant) or "")
-			else own = ("own %d, best Lv %d"):format(#copies, copies[1].item.Leveling.Level) end
+			else
+				local use = (M.gearUse or {})[sl.id]
+				local d0 = data()
+				local eq = d0 and d0.Data.Equipped
+				local worn = use and eq and (eq.Hands and (eq.Hands[1] == use and "in hand 1" or eq.Hands[2] == use and "in hand 2") or eq.Armor == use and "worn")
+				own = use and ("using Lv %d (%s), own %d"):format(use.Leveling.Level, worn or "in bag", #copies) or ("own %d, best Lv %d"):format(#copies, copies[1].item.Leveling.Level)
+			end
 			local kind = sl.cls == "Weapons" and (it.Class or "") or sl.cls == "Armor" and "Armor" or sl.title
 			sub.Text = ("%s %s - %s\n%s"):format(it.Rarity or "", kind, own, hl((M.gearState or {})[sl.id] or "waiting for the next check"))
 		end
@@ -4899,7 +4914,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20l loaded")
+log("AUTO v20m loaded")
 
 end, debug.traceback)
 if not __ok then
