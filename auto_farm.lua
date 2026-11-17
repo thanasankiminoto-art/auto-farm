@@ -1,9 +1,14 @@
-getgenv().__AutoSrc = [==[if not game:IsLoaded() then game.Loaded:Wait() end
+getgenv().__AutoSrc = [==[local __g = (getgenv and getgenv()) or _G
+local function __note(t, d)
+	pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Auto Farm", Text = t, Duration = d or 6 }) end)
+end
+if not game:IsLoaded() then game.Loaded:Wait() end
+__note("loading...", 4)
 local __lp = game:GetService("Players").LocalPlayer
 if not __lp.Character then __lp.CharacterAdded:Wait() end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794911356
+--@@BUILD 1794912069
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4578,7 +4583,6 @@ do
 end
 
 showPage("home")
-if M.mobile then main.Visible = false end
 
 -- drag by the top bar, hide with Right Ctrl, minimize
 do
@@ -4769,9 +4773,16 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20g loaded")
+log("AUTO v20h loaded")
 
 end, debug.traceback)
-if not __ok then ((getgenv and getgenv()) or _G).__AutoAllErr = __err else ((getgenv and getgenv()) or _G).__AutoAllErr = nil end
+if not __ok then
+	__g.__AutoAllErr = __err
+	warn("[Auto Farm] failed to start: " .. tostring(__err))
+	__note("failed to start: " .. tostring(__err):sub(1, 150), 20)
+else
+	__g.__AutoAllErr = nil
+	__note(((UserInputService or game:GetService("UserInputService")).TouchEnabled and "loaded - tap the AF button to show / hide" or "loaded - AF button or Right Ctrl shows / hides"), 8)
+end
 ]==]
 loadstring(getgenv().__AutoSrc)()
