@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794928195
+--@@BUILD 1794928584
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4028,7 +4028,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21a"
+M.VERSION = "v21b"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4279,10 +4279,12 @@ local function dropdownRow(body, label, options, get, set, multi)
 			for _, c in ipairs(drop:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
 			for i, o in ipairs(opts) do
 				local on = multi and get()[o[1]] or (not multi and get() == o[1])
-				local b = mk("TextButton", { Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = on and C.hover or C.field, Text = "", AutoButtonColor = false, LayoutOrder = i }, drop)
+				local b = mk("TextButton", { Size = UDim2.new(1, 0, 0, 28), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = on and C.hover or C.field, Text = "", AutoButtonColor = false, LayoutOrder = i }, drop)
 				corner(b, 6)
-				mk("TextLabel", { Size = UDim2.new(1, -36, 1, 0), Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = o[2], TextColor3 = on and C.text or C.dim, Font = F, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left }, b)
-				if on then mk("TextLabel", { Size = UDim2.new(0, 20, 1, 0), Position = UDim2.new(1, -26, 0, 0), BackgroundTransparency = 1, Text = "ON", TextColor3 = C.accent, Font = FB, TextSize = 10 }, b) end
+				-- long option text wraps onto a second line instead of running under the ON mark
+				local ol = mk("TextLabel", { Size = UDim2.new(1, -54, 0, 28), AutomaticSize = Enum.AutomaticSize.Y, Position = UDim2.new(0, 10, 0, 0), BackgroundTransparency = 1, Text = o[2], TextColor3 = on and C.text or C.dim, Font = F, TextSize = 12, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left }, b)
+				mk("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6) }, ol)
+				if on then mk("TextLabel", { Size = UDim2.new(0, 28, 0, 28), Position = UDim2.new(1, -34, 0, 0), BackgroundTransparency = 1, Text = "ON", TextColor3 = C.accent, Font = FB, TextSize = 10 }, b) end
 				b.MouseButton1Click:Connect(function()
 					set(o[1])
 					save()
@@ -5342,7 +5344,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21a loaded")
+log("AUTO v21b loaded")
 
 end, debug.traceback)
 if not __ok then
