@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794920892
+--@@BUILD 1794921174
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3242,11 +3242,13 @@ M.gearFree = function(sl, copy)
 	if not spare then return end
 	local before = {}
 	for k in pairs(inv) do before[k] = true end
+	task.wait(math.max(0, (M._lastEquipAt or 0) + 2.5 - os.clock()))
 	if sl.cls == "Weapons" then
 		d:FireServer("Equip", { SelectedItem = { "Weapons", spareK, spare }, Hand = hand })
 	else
 		d:FireServer("Equip", { SelectedItem = { "Armor", spareK, spare } })
 	end
+	M._lastEquipAt = os.clock()
 	local t0 = os.clock()
 	repeat
 		task.wait(0.3)
@@ -3276,23 +3278,35 @@ M.gearWear = function(sl, k, it)
 			M.gearState[sl.id] = ("hand 1 holds a %s, hand 2 needs the same type"):format(tostring(main.Class))
 			return false
 		end
-		d:FireServer("Equip", { SelectedItem = { "Weapons", k, it }, Hand = sl.hand })
-	else
-		d:FireServer("Equip", { SelectedItem = { "Armor", k, it } })
 	end
+	-- the game ignores an equip that comes right after another one: space them out and try a few times
 	local now
-	local t0 = os.clock()
-	repeat
-		task.wait(0.3)
-		eq = d.Data.Equipped
-		now = sl.cls == "Weapons" and eq.Hands and eq.Hands[sl.hand] or eq.Armor
-	until (type(now) == "table" and now.Name == it.Name) or os.clock() - t0 > 4
+	for attempt = 1, 3 do
+		task.wait(math.max(0, (M._lastEquipAt or 0) + 2.5 - os.clock()))
+		if sl.cls == "Weapons" then
+			d:FireServer("Equip", { SelectedItem = { "Weapons", k, it }, Hand = sl.hand })
+		else
+			d:FireServer("Equip", { SelectedItem = { "Armor", k, it } })
+		end
+		M._lastEquipAt = os.clock()
+		local t0 = os.clock()
+		repeat
+			task.wait(0.3)
+			eq = d.Data.Equipped
+			now = sl.cls == "Weapons" and eq.Hands and eq.Hands[sl.hand] or eq.Armor
+		until (type(now) == "table" and now.Name == it.Name) or os.clock() - t0 > 4
+		if type(now) == "table" and now.Name == it.Name then break end
+		-- the bag entry may have moved meanwhile
+		for k2, it2 in pairs(d.Data.Inventory[sl.cls] or {}) do
+			if it2.Name == it.Name and (it2.Leveling and it2.Leveling.Level) == (it.Leveling and it.Leveling.Level) then k, it = k2, it2 break end
+		end
+	end
 	if type(now) == "table" and now.Name == it.Name then
 		log(("gear goal: wearing %s Lv %d (%s)"):format(it.Name, it.Leveling.Level, sl.title))
 		return true
 	end
 	M._gearNoWear = M._gearNoWear or {}
-	M._gearNoWear[sl.id] = os.clock() + 600
+	M._gearNoWear[sl.id] = os.clock() + 120
 	log(("gear goal: the game would not put %s in %s"):format(it.Name, sl.title))
 	return false
 end
@@ -3715,7 +3729,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20n"
+M.VERSION = "v20o"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4951,7 +4965,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20n loaded")
+log("AUTO v20o loaded")
 
 end, debug.traceback)
 if not __ok then
