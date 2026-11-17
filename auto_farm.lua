@@ -1,14 +1,92 @@
 getgenv().__AutoSrc = [==[local __g = (getgenv and getgenv()) or _G
+local __URL = "https://raw.githubusercontent.com/thanasankiminoto-art/auto-farm/main/auto_farm.lua"
 local function __note(t, d)
 	pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Auto Farm", Text = t, Duration = d or 6 }) end)
 end
 if not game:IsLoaded() then game.Loaded:Wait() end
 __note("loading...", 4)
 local __lp = game:GetService("Players").LocalPlayer
-if not __lp.Character then __lp.CharacterAdded:Wait() end
+while not __lp do task.wait(0.2) __lp = game:GetService("Players").LocalPlayer end
+-- start screen: no character yet. Press Play, and make sure the script runs again in the game.
+if not __lp.Character then
+	pcall(function() if writefile and __g.__AutoSrc then writefile("auto_farm_src.lua", __g.__AutoSrc) end end)
+	pcall(function()
+		if queue_on_teleport then
+			queue_on_teleport([[
+local g = (getgenv and getgenv()) or _G
+if g.__AutoQueuedRan then return end
+g.__AutoQueuedRan = true
+if isfile and isfile("auto_farm_src.lua") then
+	g.__AutoSrc = readfile("auto_farm_src.lua")
+	loadstring(g.__AutoSrc)()
+else
+	loadstring(game:HttpGet("]] .. __URL .. [["))()
+end
+]])
+		end
+	end)
+	local function isPlay(b)
+		if not (b:IsA("GuiButton") and b.Visible and b.AbsoluteSize.X > 0) then return false end
+		local p = b
+		while p and p:IsA("GuiObject") do if not p.Visible then return false end p = p.Parent end
+		if p and p:IsA("ScreenGui") and not p.Enabled then return false end
+		local texts = { b.Name, b.Parent and b.Parent.Name or "" }
+		if b:IsA("TextButton") then texts[#texts + 1] = b.Text end
+		for _, d in ipairs(b:GetDescendants()) do if d:IsA("TextLabel") then texts[#texts + 1] = d.Text end end
+		for _, t in ipairs(texts) do
+			local s = tostring(t):lower():gsub("<[^>]+>", ""):gsub("%s+", "")
+			if not s:find("again") and not s:find("player") and not s:find("playing") and not s:find("display")
+				and (s == "play" or s:sub(1, 4) == "play" or s == "start" or s == "startgame" or s:find("เล่น") or s:find("เริ่ม")) then
+				return true
+			end
+		end
+		return false
+	end
+	local function press(b)
+		local fired = false
+		pcall(function()
+			for _, sig in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down", "MouseButton1Up" }) do
+				for _, c in ipairs(getconnections(b[sig])) do c:Fire() fired = true end
+			end
+		end)
+		if not fired then
+			pcall(function() if firesignal then firesignal(b.MouseButton1Click) firesignal(b.Activated) fired = true end end)
+		end
+		if not fired then
+			pcall(function()
+				local vim = game:GetService("VirtualInputManager")
+				local pos = b.AbsolutePosition + b.AbsoluteSize / 2
+				local inset = game:GetService("GuiService"):GetGuiInset()
+				vim:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, true, game, 1)
+				task.wait(0.05)
+				vim:SendMouseButtonEvent(pos.X, pos.Y + inset.Y, 0, false, game, 1)
+			end)
+		end
+	end
+	__note("start screen: pressing Play, the script starts in the game", 8)
+	local t0, seen = os.clock(), false
+	while not __lp.Character and os.clock() - t0 < 120 do
+		local pg = __lp:FindFirstChild("PlayerGui")
+		for _, b in ipairs(pg and pg:GetDescendants() or {}) do
+			if isPlay(b) then seen = true press(b) break end
+		end
+		task.wait(3)
+	end
+	if not __lp.Character then
+		if not seen then
+			local names = {}
+			for _, b in ipairs(__lp.PlayerGui:GetDescendants()) do
+				if b:IsA("GuiButton") and b.Visible and #names < 15 then names[#names + 1] = b:GetFullName():gsub("^.-PlayerGui%.", "") end
+			end
+			warn("[Auto Farm] no Play button found. Buttons: " .. table.concat(names, " | "))
+			__note("couldn't find the Play button - press it yourself, the script starts in the game", 15)
+		end
+		__lp.CharacterAdded:Wait()
+	end
+end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794912069
+--@@BUILD 1794912452
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4773,7 +4851,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20h loaded")
+log("AUTO v20i loaded")
 
 end, debug.traceback)
 if not __ok then
