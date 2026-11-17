@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794919598
+--@@BUILD 1794919948
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3311,6 +3311,8 @@ end
 -- look at every slot; upgrade / wear what can be done now, list what has to be farmed
 M.gearTick = function(force)
 	if not M.gearAny() then M.gearNeeds = {} return end
+	-- inside a dungeon / Tower / Ether the game does not apply gear changes: swapping there only leaves spares in your hands
+	if inDungeon() then return end
 	if not force and os.clock() < (M._nextGearGoal or 0) then return end
 	M._nextGearGoal = os.clock() + 30
 	local d = data()
@@ -3693,7 +3695,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20k"
+M.VERSION = "v20l"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4897,7 +4899,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20k loaded")
+log("AUTO v20l loaded")
 
 end, debug.traceback)
 if not __ok then
