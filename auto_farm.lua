@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794922848
+--@@BUILD 1794922885
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2600,7 +2600,7 @@ M.goHome = function()
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
 	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
 	-- farming gear drops / crystals on this map: stay until that is done
-	if M.prio.enabled and M.prio.on.gear and M.side.gearFarmFloor == currentFloor() and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end
+	if M.prio.enabled and (M.prio.on.gear or M.opt.gearFirst) and M.side.gearFarmFloor == currentFloor() and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end
 	-- in the middle of the daily boss tour: go straight to the next boss map, home comes after the last one
 	if (M.side.daily or (M.prio.enabled and M.prio.on.daily)) and M.dailyNext() then return end
 	local cur = currentFloor()
@@ -2675,7 +2675,7 @@ local function progressTick()
 	local f = floorInfo()
 	if f and f.cur == 1 and (f.unlocked or 1) > 1 then return end -- town: the sell trip handles going back
 	if not f or not f.exists then return end
-	if M.prio.enabled and M.prio.on.gear and M.side.gearFarmFloor == f.cur and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end -- farming gear here
+	if M.prio.enabled and (M.prio.on.gear or M.opt.gearFirst) and M.side.gearFarmFloor == f.cur and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end -- farming gear here
 	if f.unlocked >= f.nextN then
 		if f.level >= f.needLevel then
 			-- already unlocked further up: go straight to the highest map you can enter
@@ -3153,10 +3153,29 @@ M.gearStreakRun = function()
 	saveState()
 	return ok
 end
+-- Upgrade mode: while any picked item is below your level (or not owned yet) and can be farmed,
+-- do nothing else; once everything is as high as your level allows, the normal list runs
+-- (quests / dungeons for EXP) until a level-up opens room again
+M.gearModeRun = function()
+	if not (M.opt.gearFirst and M.gearAny()) then M._gearModeOn = false return false end
+	M.gearTick()
+	local keys = M.gearFarmKeys()
+	if #keys == 0 then
+		if M._gearModeOn then log("upgrade mode: gear is as high as your level allows - back to normal farming") end
+		M._gearModeOn = false
+		return false
+	end
+	if not M._gearModeOn then log("upgrade mode: farming " .. tostring(M.gearFarmFor) .. " until the gear catches up with your level") end
+	M._gearModeOn = true
+	M._gearTravel = false
+	M.prio.last.gear = os.time()
+	return M.prioRun("gear", true)
+end
 M.prioTick = function()
 	M.prioMigrate()
 	local pr = M.prio
 	pr.last = pr.last or {}
+	if M.gearModeRun() then return true end
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and (id == "floor" or id == "daily") and M.prioRun(id, false) then return true end
 	end
@@ -4957,6 +4976,17 @@ do
 		end)
 	end
 	local h = card(R, "How It Works", "?")
+	toggleRow(h, "Upgrade mode (gear first)", function() return M.opt.gearFirst end, function(v)
+		M.opt.gearFirst = v
+		M._nextGearGoal = 0
+		if v then M.running = true if not M.schedRunning then task.spawn(scheduler) end end
+		save()
+	end)
+	textRow(h, function()
+		if not M.opt.gearFirst then return "Off: gear goals only get their turn in the Priority list." end
+		if M._gearModeOn then return ("On - farming %s, nothing else until your gear catches up with your level."):format(hl(M.gearFarmFor or "...")) end
+		return "On - gear is as high as your level allows (or nothing to farm): normal farming for EXP until the next level-up."
+	end, 34)
 	textRow(h, function()
 		local known = {}
 		for fl in pairs((M.loadDrops()).__floors or {}) do known[#known + 1] = fl end
