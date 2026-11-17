@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794920591
+--@@BUILD 1794920892
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3261,14 +3261,32 @@ end
 M.gearWear = function(sl, k, it)
 	local d = data()
 	if not d then return false end
+	-- after an upgrade the bag entry can be a new table / key: look it up again
+	local inv = d.Data.Inventory[sl.cls] or {}
+	if inv[k] ~= it then
+		for k2, it2 in pairs(inv) do
+			if it2.Name == it.Name and (it2.Leveling and it2.Leveling.Level) == (it.Leveling and it.Leveling.Level) then k, it = k2, it2 break end
+		end
+	end
+	local eq = d.Data.Equipped
 	if sl.cls == "Weapons" then
+		-- the second hand must hold the same weapon type as the first: put the main hand right first
+		local main = eq.Hands and eq.Hands[1]
+		if sl.hand == 2 and type(main) == "table" and main.Class ~= it.Class then
+			M.gearState[sl.id] = ("hand 1 holds a %s, hand 2 needs the same type"):format(tostring(main.Class))
+			return false
+		end
 		d:FireServer("Equip", { SelectedItem = { "Weapons", k, it }, Hand = sl.hand })
 	else
 		d:FireServer("Equip", { SelectedItem = { "Armor", k, it } })
 	end
-	task.wait(1.2)
-	local eq = d.Data.Equipped
-	local now = sl.cls == "Weapons" and eq.Hands and eq.Hands[sl.hand] or eq.Armor
+	local now
+	local t0 = os.clock()
+	repeat
+		task.wait(0.3)
+		eq = d.Data.Equipped
+		now = sl.cls == "Weapons" and eq.Hands and eq.Hands[sl.hand] or eq.Armor
+	until (type(now) == "table" and now.Name == it.Name) or os.clock() - t0 > 4
 	if type(now) == "table" and now.Name == it.Name then
 		log(("gear goal: wearing %s Lv %d (%s)"):format(it.Name, it.Leveling.Level, sl.title))
 		return true
@@ -3697,7 +3715,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20m"
+M.VERSION = "v20n"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4555,13 +4573,21 @@ do
 			elseif sl.flat then own = ("own %d%s"):format(#copies, copies[1].item.Variant and (", best " .. copies[1].item.Variant) or "")
 			else
 				local use = (M.gearUse or {})[sl.id]
+				if not use then
+					-- same rule as the check: hand 1 takes the best copy, hand 2 the next one
+					local G0 = M.gearCfg()
+					local other = sl.id == "w2" and G0.w1 and G0.w1.name == c.name
+					use = copies[other and 2 or 1] and copies[other and 2 or 1].item
+				end
 				local d0 = data()
 				local eq = d0 and d0.Data.Equipped
 				local worn = use and eq and (eq.Hands and (eq.Hands[1] == use and "in hand 1" or eq.Hands[2] == use and "in hand 2") or eq.Armor == use and "worn")
 				own = use and ("using Lv %d (%s), own %d"):format(use.Leveling.Level, worn or "in bag", #copies) or ("own %d, best Lv %d"):format(#copies, copies[1].item.Leveling.Level)
 			end
 			local kind = sl.cls == "Weapons" and (it.Class or "") or sl.cls == "Armor" and "Armor" or sl.title
-			sub.Text = ("%s %s - %s\n%s"):format(it.Rarity or "", kind, own, hl((M.gearState or {})[sl.id] or "waiting for the next check"))
+			local stt = (M.gearState or {})[sl.id]
+			if not stt then stt = inDungeon() and "waits until you are back on the map" or "waiting for the next check" end
+			sub.Text = ("%s %s - %s\n%s"):format(it.Rarity or "", kind, own, hl(stt))
 		end
 		refreshers[#refreshers + 1] = paintTop
 		paints[#paints + 1] = paintTop
@@ -4569,6 +4595,17 @@ do
 		textRow(b, function()
 			local c = cfg()
 			if not (c and c.name) then return "" end
+			local copies0 = M.gearCopies(sl.cls, c.name)
+			if #copies0 > 0 and not sl.flat then
+				local use = (M.gearUse or {})[sl.id] or copies0[1].item
+				local cname = M.upgradeCost(use)
+				if cname then
+					local t = {}
+					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss ") end end
+					return ("Next upgrade needs %s - from: %s"):format(hl(cname), table.concat(t, ", "))
+				end
+				return "Max level reached."
+			end
 			local src = M.gearSources(c.name)
 			if #src == 0 then return '<font color="#d65656">No known way to get it (event / removed item?).</font>' end
 			local t = {}
@@ -4914,7 +4951,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20m loaded")
+log("AUTO v20n loaded")
 
 end, debug.traceback)
 if not __ok then
