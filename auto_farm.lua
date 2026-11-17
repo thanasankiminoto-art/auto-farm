@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794923132
+--@@BUILD 1794923346
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3159,8 +3159,11 @@ end
 M.gearModeRun = function()
 	if not (M.opt.gearFirst and M.gearAny()) then M._gearModeOn = false return false end
 	M.gearTick()
+	M._gearMatsOnly = true
 	local keys = M.gearFarmKeys()
 	if #keys == 0 then
+		M._gearMatsOnly = false
+		M.gearFarmKeys() -- back to the full list (item hunts) for the normal Priority turn
 		if M._gearModeOn then log("upgrade mode: gear is as high as your level allows - back to normal farming") end
 		M._gearModeOn = false
 		return false
@@ -3169,7 +3172,9 @@ M.gearModeRun = function()
 	M._gearModeOn = true
 	M._gearTravel = false
 	M.prio.last.gear = os.time()
-	return M.prioRun("gear", true)
+	local ok = M.prioRun("gear", true)
+	M._gearMatsOnly = false
+	return ok
 end
 M.prioTick = function()
 	M.prioMigrate()
@@ -3679,6 +3684,7 @@ M.gearFarmKeys = function()
 	local sd = M.side
 	sd.gearStat = sd.gearStat or {}
 	for _, n in ipairs(M.gearNeeds or {}) do
+		if M._gearMatsOnly and not n.mat then continue end -- Upgrade mode: only upgrade materials, item hunts wait for their turn
 		-- drops are random everywhere, so a couple of runs prove little: every place gets 3 tries,
 		-- the score is smoothed ((got + 1) / time, so one dry run doesn't rule a place out),
 		-- and every 6th run goes to the least-tried place to keep the numbers honest
@@ -3988,7 +3994,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20w"
+M.VERSION = "v20x"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4989,7 +4995,7 @@ do
 		save()
 	end)
 	textRow(h, function()
-		if not M.opt.gearFirst then return "Off: gear goals only get their turn in the Priority list." end
+		if not M.opt.gearFirst then return "Off: gear goals only get their turn in the Priority list. On: upgrade materials come first; hunting items you don't own yet still waits for its turn in the list." end
 		if M._gearModeOn then return ("On - farming %s, nothing else until your gear catches up with your level."):format(hl(M.gearFarmFor or "...")) end
 		return "On - gear is as high as your level allows (or nothing to farm): normal farming for EXP until the next level-up."
 	end, 34)
@@ -5260,7 +5266,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20w loaded")
+log("AUTO v20x loaded")
 
 end, debug.traceback)
 if not __ok then
