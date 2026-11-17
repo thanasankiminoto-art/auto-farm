@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794928624
+--@@BUILD 1794932963
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4028,7 +4028,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21c"
+M.VERSION = "v21d"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4342,9 +4342,90 @@ navGroup("Other")
 navItem("teleport", "Other", "Teleport", "Maps")
 navItem("settings", "Other", "Settings", "Window")
 
+-- ONE MODE SWITCH: three big buttons, only one is on. Below them: what runs and what waits.
+M.MODES = {
+	{ id = "farm", name = "Farm everything", hint = "the Priority list, in its order" },
+	{ id = "level", name = "Level up", hint = "EXP only, to reach the next map" },
+	{ id = "gear", name = "Upgrade gear", hint = "upgrade materials first, then farm" },
+}
+M.getMode = function()
+	if M.opt.focus == "level" then return "level" end
+	if M.gearMode and M.gearMode() == "upgrade" then return "gear" end
+	return "farm"
+end
+M.setMode = function(id)
+	M.opt.focus = id == "level" and "level" or "normal"
+	M.opt.gearMode = id == "gear" and "upgrade" or "balanced"
+	M.opt.gearFirst = id == "gear"
+	if not M.prio.enabled then M.setPrio(true) end
+	M.running = true
+	if not M.schedRunning then task.spawn(scheduler) end
+	M._nextGearGoal = 0
+	save()
+	repaintAll()
+end
+M.modeSummary = function()
+	local m = M.getMode()
+	local pr = M.prio
+	local L0 = M.PRIO_LABEL or {}
+	local function name(id) return (tostring(L0[id] or id):gsub("%s*%(.*$", "")) end
+	local doing, waiting = {}, {}
+	if m == "level" then
+		doing = { "Next floor", "Daily boss", "Quests", "Dungeons", "Floor boss" }
+		waiting = { "Tower", "Catacombs", "Battle Arena", "The Ether", "Gear farming" }
+	else
+		for _, id in ipairs(pr.order) do
+			if pr.on[id] then doing[#doing + 1] = name(id) else waiting[#waiting + 1] = name(id) end
+		end
+		if m == "gear" then table.insert(doing, 1, "Upgrade materials (while gear is below your level)") end
+	end
+	local always = {}
+	if M.opt.bounty then always[#always + 1] = "bounty hunt" end
+	if M.opt.autoSell then always[#always + 1] = "auto sell" end
+	if M.on and M.on.gear then always[#always + 1] = "best gear" end
+	if M.on and M.on.stats then always[#always + 1] = "stat points" end
+	if M.gearAny and M.gearAny() then always[#always + 1] = "gear goal upgrades" end
+	local txt = ('<font color="#6ED876">Does:</font> %s\n<font color="#d65656">Waits:</font> %s'):format(table.concat(doing, ", "), #waiting > 0 and table.concat(waiting, ", ") or "nothing")
+	if #always > 0 then txt = txt .. ('\n<font color="#9aa29c">Always on the side:</font> %s'):format(table.concat(always, ", ")) end
+	if not pr.enabled then txt = '<font color="#d65656">Priority list is off: the pages\' own switches decide. Pick a mode to turn it on.</font>' end
+	return txt
+end
+M.modeCard = function(col)
+	local c = card(col, "Mode", "M")
+	local holder = mk("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextOrder() }, c)
+	list(holder, 6)
+	local btns = {}
+	for i, md in ipairs(M.MODES) do
+		local b = mk("TextButton", { Size = UDim2.new(1, 0, 0, 40), BackgroundColor3 = C.field, Text = "", AutoButtonColor = false, LayoutOrder = i }, holder)
+		corner(b, 9)
+		local st = stroke(b, C.line, 1)
+		local dot = mk("Frame", { Size = UDim2.new(0, 12, 0, 12), Position = UDim2.new(0, 12, 0.5, -6), BackgroundColor3 = C.off, BorderSizePixel = 0 }, b)
+		corner(dot, 6)
+		mk("TextLabel", { Size = UDim2.new(1, -40, 0, 18), Position = UDim2.new(0, 32, 0, 4), BackgroundTransparency = 1, Text = md.name, TextColor3 = C.text, Font = FB, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, b)
+		mk("TextLabel", { Size = UDim2.new(1, -40, 0, 14), Position = UDim2.new(0, 32, 0, 21), BackgroundTransparency = 1, Text = md.hint, TextColor3 = C.dim, Font = F, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left }, b)
+		btns[md.id] = { b = b, st = st, dot = dot }
+		table.insert(conns, b.MouseButton1Click:Connect(function() M.setMode(md.id) end))
+	end
+	local function paint()
+		local cur = M.getMode()
+		for id, x in pairs(btns) do
+			local on = id == cur
+			x.b.BackgroundColor3 = on and C.hover or C.field
+			x.st.Color = on and C.accent or C.line
+			x.dot.BackgroundColor3 = on and C.accent or C.off
+		end
+	end
+	paint()
+	paints[#paints + 1] = paint
+	refreshers[#refreshers + 1] = paint
+	textRow(c, function() return M.modeSummary() end, 70)
+	return c
+end
+
 -- HOME
 do
 	local L, R = newPage("home")
+	M.modeCard(L)
 	local b = card(L, "Status", "S")
 	statusLabel = textRow(b, "", 34)
 	statusLabel.TextColor3 = C.text
@@ -4573,31 +4654,17 @@ end
 do
 	local L, R = newPage("prio")
 	M.prioMigrate()
-	local fc = card(L, "Mode", "F")
-	dropdownRow(fc, "What to do", function()
-		return {
-			{ "normal", "Normal - the Priority list below" },
-			{ "level", "Level up - EXP only, to reach the next map" },
-		}
-	end, function() return M.opt.focus or "normal" end, function(v)
-		M.opt.focus = v
-		M.running = true
-		if not M.schedRunning then task.spawn(scheduler) end
-	end)
-	textRow(fc, function()
+	M.modeCard(L)
+	textRow(card(L, "Level", "L"), function()
 		local d = data()
 		local lv = d and d.Data.Leveling or {}
 		local f = floorInfo and floorInfo()
 		local nextTxt = ""
 		if f and f.nextN and f.needLevel then
-			nextTxt = (f.level or lv.Level or 0) >= f.needLevel and ("  -  next map %s is open"):format(hl(tostring(f.nextName))) or ("  -  next map %s needs Lv %s"):format(hl(tostring(f.nextName)), hl(f.needLevel))
+			nextTxt = (f.level or lv.Level or 0) >= f.needLevel and ("\nNext map %s is open"):format(hl(tostring(f.nextName))) or ("\nNext map %s needs Lv %s"):format(hl(tostring(f.nextName)), hl(f.needLevel))
 		end
-		local head = ("Level %s  (%s / %s EXP)%s"):format(hl(lv.Level or "?"), hl(lv.Experience or 0), hl(lv.ExperienceCap or "?"), nextTxt)
-		if (M.opt.focus or "normal") == "level" then
-			return head .. "\nLevel up: next floor, daily bosses, quests, then dungeons and the floor boss in turns. Tower, Catacombs, Arena, Ether and gear farming wait. Gear is still upgraded with whatever drops."
-		end
-		return head .. "\nNormal: everything that is ON in the list below, in its order."
-	end, 50)
+		return ("Level %s  (%s / %s EXP)%s"):format(hl(lv.Level or "?"), hl(lv.Experience or 0), hl(lv.ExperienceCap or "?"), nextTxt)
+	end, 34)
 	local b = card(L, "Priority List", "P")
 	toggleRow(b, "Use the priority list", function() return M.prio.enabled end, function(v)
 		M.setPrio(v)
@@ -4644,7 +4711,6 @@ do
 	end
 	local r = card(R, "How It Decides", "?")
 	textRow(r, "Quests run until none is left on the map. Daily bosses are tried once a day. Then Dungeons, Catacombs, Arena, Ether, Boss farm and Tower take turns in list order. Tower / Catacombs / Arena leave after the number of floors you set; Dungeons / Ether / Boss farm wait their minutes before repeating.")
-	M.gearModeRows(card(R, "Gear Mode", "M"))
 	local fg = card(R, "Tower Goal (stop for good)", "G")
 	sliderRow(fg, "Tower: leave after clearing floor", 10, 5000, 10, function()
 		if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end
@@ -4896,7 +4962,7 @@ end
 -- GEAR GOALS
 do
 	local L, R = newPage("gear")
-	M.gearModeRows(card(L, "Gear Mode", "M"))
+	textRow(card(L, "Mode", "M"), "How hard gear is farmed is set by the Mode on the Home page: Upgrade gear = upgrade materials come first; Farm everything = gear takes its turn in the Priority list; Level up = no gear farming (upgrades still happen with what drops).")
 	local RARITY_COL = {
 		Common = Color3.fromRGB(170, 170, 170), Uncommon = Color3.fromRGB(100, 255, 0), Rare = Color3.fromRGB(0, 136, 255),
 		["Super Rare"] = Color3.fromRGB(212, 0, 255), Legendary = Color3.fromRGB(255, 191, 0),
@@ -5346,7 +5412,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21c loaded")
+log("AUTO v21d loaded")
 
 end, debug.traceback)
 if not __ok then
