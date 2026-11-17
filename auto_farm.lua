@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794921174
+--@@BUILD 1794921584
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1586,6 +1586,21 @@ end
 local function enterDungeon(name)
 	local d = data()
 	if not d or not name then return end
+	-- a monster on a map (gear farming): go to its map, then hunt it for 3 minutes
+	if name:sub(1, 4) == "MOB:" then
+		local mob, fl = name:match("^MOB:(.+)@(%d+)$")
+		fl = tonumber(fl)
+		local cur = currentFloor()
+		M.side.gearFarmFloor = fl
+		M.side.gearFarmAt = os.time()
+		if fl and cur and fl ~= cur then
+			saveState()
+			if M.travelTo(fl, "hunt " .. tostring(mob)) then task.wait(20) end
+			return
+		end
+		M.farmMob(mob, 180)
+		return
+	end
 	-- a dungeon / boss on another map (gear farming): go to its map first, enter on arrival
 	if not name:find(":") or name:sub(1, 5) == "BOSS:" then
 		local fl = M.instFloor(name)
@@ -3146,6 +3161,10 @@ M.gearSources = function(itemName)
 	for name, x in pairs(info.Dungeons or {}) do if has(x) then add("dungeon", name, "Dungeon " .. name, tonumber(x.Floor), true) end end
 	for name, x in pairs(info.Bosses or {}) do if has(x) then add("boss", "BOSS:" .. name, "Boss " .. name, tonumber(x.Floor), true) end end
 	for name, x in pairs(info.DailyBosses or {}) do if has(x) then add("daily", "DAILY:" .. name, "Daily boss " .. name .. " (once a day)", tonumber(x.Floor), false) end end
+	for key in pairs((M.loadDrops())[itemName] or {}) do
+		local mob, fl = tostring(key):match("^(.+)@(%d+)$")
+		if mob then add("mob", "MOB:" .. key, "Monster " .. mob, tonumber(fl), true) end
+	end
 	if info.Recipes and info.Recipes[itemName] then
 		add("craft", nil, ("Crafting (needs Lv %s + materials)"):format(tostring(info.Recipes[itemName].Level or "?")), nil, false)
 	end
@@ -3171,7 +3190,7 @@ M.gearSources = function(itemName)
 			end
 		end
 	end
-	local rank = { dungeon = 1, boss = 2, daily = 3, tower = 4, craft = 5, chest = 6, shop = 7, box = 8 }
+	local rank = { dungeon = 1, mob = 2, boss = 3, daily = 4, tower = 5, craft = 6, chest = 7, shop = 8, box = 9 }
 	table.sort(out, function(a, b)
 		if a.ok ~= b.ok then return a.ok end
 		if rank[a.kind] ~= rank[b.kind] then return rank[a.kind] < rank[b.kind] end
@@ -3431,6 +3450,66 @@ M.gearTick = function(force)
 	if #needs == 0 then M.side.gearFarmFloor = nil end
 end
 
+-- monster drops: the game shows the drop list only for monsters of the map you stand on,
+-- so every map visit is remembered in auto_farm_drops.json (item -> "Monster@floor")
+M.loadDrops = function()
+	if M.dropCache then return M.dropCache end
+	local ok, t = pcall(function() return Http:JSONDecode(readfile("auto_farm_drops.json")) end)
+	M.dropCache = ok and type(t) == "table" and t or {}
+	return M.dropCache
+end
+M.learnDrops = function()
+	if inDungeon() then return end
+	if os.clock() < (M._nextLearn or 0) then return end
+	M._nextLearn = os.clock() + 120
+	local fl = currentFloor()
+	if not fl then return end
+	local info = gameInfo() or {}
+	local cache = M.loadDrops()
+	local changed = false
+	for ename, e in pairs(info.Enemies or {}) do
+		for item in pairs(type(e) == "table" and e.Drops or {}) do
+			item = tostring(item)
+			cache[item] = cache[item] or {}
+			local key = ename .. "@" .. fl
+			if not cache[item][key] then cache[item][key] = true changed = true end
+		end
+	end
+	if changed then pcall(function() writefile("auto_farm_drops.json", Http:JSONEncode(cache)) end) end
+end
+-- hunt one kind of monster on this map for a while
+M.farmMob = function(name, secs)
+	local t0, killed = os.clock(), 0
+	while os.clock() - t0 < secs and M.running and not inDungeon() do
+		local _, hrp = char()
+		if not hrp then task.wait(1) continue end
+		local best, bd
+		local se = workspace:FindFirstChild("SpawnedEntities")
+		for _, e in ipairs(se and se:GetChildren() or {}) do
+			if e.Name == name then
+				local h = e:FindFirstChildOfClass("Humanoid")
+				local p = mobPos(e)
+				if h and h.Health > 0 and p then
+					local dd = (p - hrp.Position).Magnitude
+					if not bd or dd < bd then best, bd = e, dd end
+				end
+			end
+		end
+		if not best then
+			status("Gear: waiting for " .. name .. " to spawn")
+			task.wait(2)
+		else
+			status(("Gear: hunting %s for %s (%d killed)"):format(name, tostring(M.gearFarmFor), killed))
+			if bd > 250 then warpToward(mobPos(best)) end
+			pcall(kill, best)
+			killed += 1
+		end
+	end
+	release()
+	if killed > 0 then log(("gear: killed %d x %s"):format(killed, name)) end
+	return killed
+end
+
 -- the places to run for the first thing that is still missing (Priority row "Gear goals")
 M.gearFarmKeys = function()
 	local out, seen = {}, {}
@@ -3483,6 +3562,7 @@ local function scheduler()
 			if M.tpTourTick() then return end
 			M.upgradeGear()
 			pcall(M.gearTick)
+			pcall(M.learnDrops)
 			M.craftBetter()
 			M.dropForeignQuests()
 			M.collectOrbs()
@@ -3729,7 +3809,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20o"
+M.VERSION = "v20p"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4615,7 +4695,7 @@ do
 				local cname = M.upgradeCost(use)
 				if cname then
 					local t = {}
-					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss ") end end
+					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss "):gsub("^Monster ", "") end end
 					return ("Next upgrade needs %s - from: %s"):format(hl(cname), table.concat(t, ", "))
 				end
 				return "Max level reached."
@@ -4723,6 +4803,7 @@ do
 		end)
 	end
 	local h = card(R, "How It Works", "?")
+	textRow(h, "Monster drops: the game only shows what the monsters of the map you are on drop. The script remembers it for every map you visit (the TP point tour visits them all), so an item that shows \"no source\" can turn \"farmable\" later.")
 	textRow(h, "Pet and Mount: picked ones are put on as soon as you own them. They can't be farmed: the card shows where they come from (Tower floors, shop boxes bought with Bleeter Bits, chests...). The script never buys boxes.")
 	textRow(h, "For every slot you fill: if you don't own it yet, the Priority row \"Gear goals\" runs the dungeon / boss that drops it until it drops. Then it is upgraded up to the level you set (0 = your own level; it can never go above you), and when it is short of upgrade crystals it runs the dungeons that give those. It is worn in its hand / as armor as soon as you can wear it. Daily bosses, crafting, chests and shops are shown but not farmed here. Coins under \"keep coins\" are never spent.")
 	textRow(h, function()
@@ -4965,7 +5046,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20o loaded")
+log("AUTO v20p loaded")
 
 end, debug.traceback)
 if not __ok then
