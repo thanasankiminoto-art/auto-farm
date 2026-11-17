@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794932963
+--@@BUILD 1794933209
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4028,7 +4028,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21d"
+M.VERSION = "v21e"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4344,7 +4344,7 @@ navItem("settings", "Other", "Settings", "Window")
 
 -- ONE MODE SWITCH: three big buttons, only one is on. Below them: what runs and what waits.
 M.MODES = {
-	{ id = "farm", name = "Farm everything", hint = "the Priority list, in its order" },
+	{ id = "farm", name = "Custom", hint = "your own ON / OFF list below" },
 	{ id = "level", name = "Level up", hint = "EXP only, to reach the next map" },
 	{ id = "gear", name = "Upgrade gear", hint = "upgrade materials first, then farm" },
 }
@@ -4353,7 +4353,23 @@ M.getMode = function()
 	if M.gearMode and M.gearMode() == "upgrade" then return "gear" end
 	return "farm"
 end
+-- the Priority rows show what each mode does: Level up switches them to its own set,
+-- Custom / Upgrade gear bring your own set back (kept in prio.custom)
+M.LEVEL_ROWS = { floor = true, daily = true, quests = true, dungeons = true, boss = true }
 M.setMode = function(id)
+	local pr = M.prio
+	local was = M.getMode()
+	if was ~= "level" then
+		pr.custom = {}
+		for k, v in pairs(pr.on) do pr.custom[k] = v end
+		if was == "gear" then pr.custom.gear = pr.customGear end
+	end
+	if id == "level" then
+		for _, k in ipairs(pr.order) do pr.on[k] = M.LEVEL_ROWS[k] or false end
+	else
+		for k, v in pairs(pr.custom or {}) do pr.on[k] = v end
+		if id == "gear" then pr.customGear = pr.on.gear pr.on.gear = true end
+	end
 	M.opt.focus = id == "level" and "level" or "normal"
 	M.opt.gearMode = id == "gear" and "upgrade" or "balanced"
 	M.opt.gearFirst = id == "gear"
@@ -4703,6 +4719,8 @@ do
 			local id = M.prio.order[i]
 			M.prio.on[id] = not M.prio.on[id]
 			if M.prio.on[id] then M.prio.nextAt[id] = 0 end
+			-- changing a row by hand while on Level up turns this into your own (Custom) list
+			if M.getMode() == "level" then M.opt.focus = "normal" M.opt.gearMode = "balanced" M.opt.gearFirst = false end
 			save()
 			repaintAll()
 		end))
@@ -5412,7 +5430,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21d loaded")
+log("AUTO v21e loaded")
 
 end, debug.traceback)
 if not __ok then
