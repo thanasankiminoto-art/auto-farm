@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794921977
+--@@BUILD 1794922294
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -660,7 +660,8 @@ local function kill(mob, single)
 	local lastProgress, lastHP = os.clock(), h.Health
 	local retreats = 0
 	-- keep fighting while the mob keeps losing HP; give up only after 20 s without any damage (hard cap 5 min)
-	while M.running and (M.on.kill or M._dungeonRunning) and h.Health > 0 and mob.Parent and os.clock() - lastProgress < 20 and os.clock() - t0 < (single and 900 or 300) do
+	while M.running and (M.on.kill or M._dungeonRunning) and h.Health > 0 and mob.Parent and os.clock() - lastProgress < 20 and os.clock() - t0 < (single and 900 or 300)
+		and not (h.Health >= h.MaxHealth and os.clock() - t0 > 12 and not single) do
 		if h.Health < lastHP then
 			M._dmg = (M._dmg or 0) + (lastHP - h.Health) -- live damage meter for "too strong" checks
 			lastProgress, lastHP = os.clock(), h.Health
@@ -730,6 +731,10 @@ local function kill(mob, single)
 			status("Dodging " .. mob.Name .. "'s attack")
 		end
 		setTarget(safe, dodging and 160 or 60, p)
+		if not dodging and (hrp.Position - safe).Magnitude > 45 and os.clock() - (M._lastCatchUp or 0) > 1.5 then
+			M._lastCatchUp = os.clock()
+			pcall(function() hrp.CFrame = CFrame.new(safe) * (hrp.CFrame - hrp.CFrame.Position) end)
+		end
 		-- one swing hits every enemy in reach (the game's own swing sends a list too)
 		local targets = { mob }
 		for _, e in ipairs(workspace.SpawnedEntities:GetChildren()) do
@@ -1902,17 +1907,31 @@ local function runDungeon()
 			-- keep the current target, else the most wounded one, else the nearest
 			local mob
 			do
+				M._skipMob = M._skipMob or setmetatable({}, { __mode = "k" })
+				local function ok(en) return (M._skipMob[en] or 0) < os.clock() end
 				local cur = M._target
 				local ch = cur and cur.Parent and cur:FindFirstChildOfClass("Humanoid")
-				if ch and ch.Health > 0 then
+				if ch and ch.Health > 0 and ok(cur) then
 					mob = cur
 				else
 					local bestR
 					for _, en in ipairs(workspace.SpawnedEntities:GetChildren()) do
 						local eh = en:FindFirstChildOfClass("Humanoid")
-						if eh and eh.Health > 0 and eh.MaxHealth > 0 and eh.Health < eh.MaxHealth then
+						if eh and eh.Health > 0 and eh.MaxHealth > 0 and eh.Health < eh.MaxHealth and ok(en) then
 							local r = eh.Health / eh.MaxHealth
 							if not bestR or r < bestR then mob, bestR = en, r end
+						end
+					end
+					if not mob then
+						local _, hrp0 = char()
+						local bd
+						for _, en in ipairs(workspace.SpawnedEntities:GetChildren()) do
+							local eh = en:FindFirstChildOfClass("Humanoid")
+							local ep = eh and eh.Health > 0 and ok(en) and mobPos(en)
+							if ep and hrp0 then
+								local dd = (ep - hrp0.Position).Magnitude
+								if not bd or dd < bd then mob, bd = en, dd end
+							end
 						end
 					end
 					mob = mob or nearestAnyMob()
@@ -1931,7 +1950,16 @@ local function runDungeon()
 				local fl = inst.Data.Floor
 				status(tower and ("Tower floor %s - %s/%s - %s"):format(tostring(fl and fl.Current), tostring(e.NumberOfEnemiesDefeated), tostring(e.NumberOfEnemies), mob.Name)
 					or ("Dungeon %s/%s - %s"):format(tostring(e.NumberOfEnemiesDefeated), tostring(e.NumberOfEnemies), mob.Name))
+				local mh = mob:FindFirstChildOfClass("Humanoid")
+				local before = mh and mh.Health
 				kill(mob)
+				if mh and mh.Health > 0 and mob.Parent and before and mh.Health >= math.min(before, mh.MaxHealth) then
+					-- not a scratch on it (it walked off, or we could not reach it): try another enemy first
+					M._skipMob = M._skipMob or setmetatable({}, { __mode = "k" })
+					M._skipMob[mob] = os.clock() + 30
+					M._target = nil
+					log(("could not hurt %s - trying another enemy first"):format(mob.Name))
+				end
 			else
 				idle += 1
 				status(tower and "Tower: waiting for the next wave..." or "Dungeon: waiting for enemies...")
@@ -3863,7 +3891,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20r"
+M.VERSION = "v20s"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5107,7 +5135,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20r loaded")
+log("AUTO v20s loaded")
 
 end, debug.traceback)
 if not __ok then
