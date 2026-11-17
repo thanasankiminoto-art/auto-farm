@@ -859,9 +859,9 @@ local function doKill(q)
 			sd.questTried = sd.questTried or {}
 			local okFloor = false
 			for _, f in ipairs(M.floorList()) do if f.n == mf and f.ok then okFloor = true end end
-			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
+			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and not M.onTrip() and not sd.questTrip and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
 				sd.questTried[q.MobToKill] = os.time()
-				sd.questTrip, sd.questMob = os.time(), q.MobToKill
+				sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = os.time(), q.MobToKill, mf, nil, os.time()
 				M.saveState()
 				log(("%s lives on map %d - going there for the quest"):format(tostring(q.MobToKill), mf))
 				if M.travelTo(mf, "quest " .. tostring(q.MobToKill)) then task.wait(20) end
@@ -2616,11 +2616,7 @@ M.goHome = function()
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
 	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
-	if M.side.questTrip and os.time() - M.side.questTrip < 1800 then -- here for a quest's monster
-		for _, q in ipairs(quests()) do
-			if q.MobToKill == M.side.questMob and (q.Progress or 0) < (q.Amount or 1) then return end
-		end
-	end
+	if M.questTripHold() then return end -- on a quest trip: stay
 	-- farming gear drops / crystals on this map: stay until that is done
 	if M.prio.enabled and (M.prio.on.gear or M.gearMode() == "upgrade") and M.side.gearFarmFloor == currentFloor() and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end
 	-- in the middle of the daily boss tour: go straight to the next boss map, home comes after the last one
@@ -2693,11 +2689,7 @@ local function progressTick()
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
 	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
-	if M.side.questTrip and os.time() - M.side.questTrip < 1800 then -- here for a quest's monster
-		for _, q in ipairs(quests()) do
-			if q.MobToKill == M.side.questMob and (q.Progress or 0) < (q.Amount or 1) then return end
-		end
-	end
+	if M.questTripHold() then return end -- on a quest trip: stay
 	if (M.side.daily or (M.prio.enabled and M.prio.on.daily)) and M.dailyNext() then return end
 	local f = floorInfo()
 	if f and f.cur == 1 and (f.unlocked or 1) > 1 then return end -- town: the sell trip handles going back
@@ -3152,13 +3144,7 @@ M.backHome = function()
 	if (sd.towerTrip and now - sd.towerTrip < 300) or (sd.cataTrip and now - sd.cataTrip < 300)
 		or (sd.tpTrip and now - sd.tpTrip < 600) or (sd.scanTrip and now - sd.scanTrip < 300)
 		or (sd.dailyTrip and now - sd.dailyTrip < 600) then return false end
-	-- on another map for a quest's monster: stay until that quest is done (at most 30 min)
-	if sd.questTrip and now - sd.questTrip < 1800 then
-		for _, q in ipairs(quests()) do
-			if q.MobToKill == sd.questMob and (q.Progress or 0) < (q.Amount or 1) then return false end
-		end
-	end
-	sd.questTrip, sd.questMob = nil, nil
+	if M.questTripHold() then return false end -- on a quest trip: stay until its quests are done
 	sd.gearFarmFloor = nil
 	saveState()
 	if M.travelTo(n, "home map") then task.wait(20) return true end
@@ -3228,6 +3214,7 @@ M.levelModeRun = function()
 	if M.prioRun("daily", false) then return true end
 	if not M._noQuestWork and M.backHome() then return true end
 	if M.prioRun("quests", false) then return true end
+	if M.oldQuestTick() then return true end
 	if M.backHome() then return true end
 	local best, bestT
 	for _, id in ipairs({ "dungeons", "boss" }) do
@@ -3255,6 +3242,7 @@ M.prioTick = function()
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and id == "quests" and not M._noQuestWork and M.backHome() then return true end -- quests left at home
 		if pr.on[id] and id == "quests" and M.prioRun(id, false) then return true end
+		if pr.on[id] and id == "quests" and M.oldQuestTick() then return true end
 	end
 	-- the repeatable ones take turns: whoever went longest ago goes next (list order breaks ties);
 	-- one still inside its waiting time is skipped unless nothing else is ready
@@ -3753,6 +3741,104 @@ M.questBookText = function()
 	return table.concat(out, "\n")
 end
 
+-- one map trip at a time: is another trip (Tower, Catacombs, TP tour, drop scan, daily bosses, selling) under way?
+M.onTrip = function()
+	local sd, now = M.side, os.time()
+	return M.sellTrip or (sd.towerTrip and now - sd.towerTrip < 300) or (sd.cataTrip and now - sd.cataTrip < 300)
+		or (sd.tpTrip and now - sd.tpTrip < 600) or (sd.scanTrip and now - sd.scanTrip < 300) or (sd.dailyTrip and now - sd.dailyTrip < 600)
+		or (sd.gearFarmFloor and now - (sd.gearFarmAt or 0) < 1800 and sd.gearFarmFloor ~= M.homeTarget())
+end
+M.questBookCached = function()
+	if not M._qbCache or os.clock() > (M._qbCacheT or 0) then
+		M._qbCache = M.loadQuestBook()
+		M._qbCacheT = os.clock() + 60
+	end
+	return M._qbCache
+end
+-- a quest trip (old quests on a lower map, or a quest monster that lives on another map) ends:
+-- what is still open there waits 3 hours before the next try
+M.questTripEnd = function(why)
+	local sd = M.side
+	if not sd.questTrip then return end
+	local d = data()
+	local done = d and d.Data.Quests.CompletedQuests or {}
+	sd.oldSkip = sd.oldSkip or {}
+	local list = sd.questFloor and (M.questBookCached())[tostring(sd.questFloor)] or {}
+	local open = 0
+	for id in pairs(list) do
+		if not done[id] then sd.oldSkip[id] = os.time() + 3 * 3600 open += 1 end
+	end
+	log(("quest trip to map %s over (%s)%s"):format(tostring(sd.questFloor), why, open > 0 and (" - %d left there, next try in 3 h"):format(open) or ""))
+	sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = nil, nil, nil, nil, nil
+	M.saveState()
+end
+-- true while the trip's quests are still moving: nothing may pull the character home or up a map
+M.questTripHold = function()
+	local sd, now = M.side, os.time()
+	if not sd.questTrip then return false end
+	local cur = M.currentFloor()
+	if M.inDungeon() or not cur then return true end
+	if sd.questFloor and cur ~= sd.questFloor then
+		if now - sd.questTrip < 120 then return false end -- still on the way
+		M.questTripEnd("left the map")
+		return false
+	end
+	if now - sd.questTrip > 2700 then M.questTripEnd("45 min are up") return false end
+	local list = (M.questBookCached())[tostring(sd.questFloor or cur)] or {}
+	local sum, open = 0, 0
+	for _, q in ipairs(quests()) do
+		if list[q.ID] or (sd.questMob and q.MobToKill == sd.questMob) then
+			sum += (q.Progress or 0)
+			if q.Objective ~= "Return" then open += 1 end
+		end
+	end
+	if sd.questSum ~= sum then sd.questSum, sd.questMoved = sum, now end
+	sd.questMoved = sd.questMoved or now
+	if open == 0 and now - sd.questTrip > 90 then M.questTripEnd("done") return false end
+	if now - sd.questMoved > 600 then M.questTripEnd("no progress for 10 min") return false end
+	return true
+end
+-- story quests left on a lower map (not taken, or dropped when you went home): go there, take them, do them
+M.oldQuestTick = function()
+	if M.opt.oldQuests == false or not M.on.accept then return false end
+	local sd, now = M.side, os.time()
+	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) then return false end
+	if M.dailyNext and M.dailyNext() then return false end
+	local maxQ = 4
+	for _, r in pairs(RC._replicas) do
+		if r.Class == "Info" and r.Data._GameData then maxQ = tonumber(r.Data._GameData.MAX_QUESTS) or 4 end
+	end
+	if #quests() >= maxQ then return false end
+	local d = data()
+	if not d then return false end
+	local done = d.Data.Quests.CompletedQuests or {}
+	local prog = {}
+	for _, q in ipairs(quests()) do prog[q.ID] = true end
+	local cur = M.currentFloor()
+	local book = M.questBookCached()
+	sd.oldSkip = sd.oldSkip or {}
+	for _, f in ipairs(M.floorList()) do
+		local list = book[tostring(f.n)]
+		if f.ok and list and f.n ~= cur then
+			local n = 0
+			for id, e in pairs(list) do
+				local isDaily = tostring(id):find("Daily") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
+				if not isDaily and not done[id] and not prog[id] and now >= (sd.oldSkip[id] or 0) then n += 1 end
+			end
+			if n > 0 then
+				sd.oldQuestNext = now + 300
+				sd.questTrip, sd.questFloor, sd.questMob, sd.questSum, sd.questMoved = now, f.n, nil, nil, now
+				M.saveState()
+				log(("%d old quest(s) left on map %d (%s) - going there to do them"):format(n, f.n, tostring(f.name)))
+				if M.travelTo(f.n, "old quests") then task.wait(20) return true end
+				M.questTripEnd("could not travel")
+				return false
+			end
+		end
+	end
+	sd.oldQuestNext = now + 600
+	return false
+end
 -- visit every map you can enter once, just to read its monsters' drops, then go home
 M.scanStart = function(onlyMissing)
 	local left = {}
@@ -4219,7 +4305,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21q"
+M.VERSION = "v21r"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4688,6 +4774,8 @@ do
 	funcToggle(b, "find", "Do find-item quests")
 	funcToggle(b, "talk", "Do talk-to-NPC quests")
 	funcToggle(b, "turnin", "Turn in finished quests")
+	if M.opt.oldQuests == nil then M.opt.oldQuests = true end
+	optToggle(b, "Go back for quests left on lower maps", "oldQuests")
 	optToggle(b, "Skip failed quests 30 min", "longSkip")
 	textRow(b, "One quest at a time: finish it, hand it in, take new ones, then the next.")
 	local t = card(L, "Teleports", "T")
@@ -5641,7 +5729,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21q loaded")
+log("AUTO v21r loaded")
 
 end, debug.traceback)
 if not __ok then
