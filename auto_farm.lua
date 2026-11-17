@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794921584
+--@@BUILD 1794921737
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2564,6 +2564,7 @@ M.goHome = function()
 	if M.side.towerTrip and os.time() - M.side.towerTrip < 300 then return end
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
+	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
 	-- farming gear drops / crystals on this map: stay until that is done
 	if M.prio.enabled and M.prio.on.gear and M.side.gearFarmFloor == currentFloor() and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end
 	-- in the middle of the daily boss tour: go straight to the next boss map, home comes after the last one
@@ -2635,6 +2636,7 @@ local function progressTick()
 	if M.side.towerTrip and os.time() - M.side.towerTrip < 300 then return end
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
+	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
 	if (M.side.daily or (M.prio.enabled and M.prio.on.daily)) and M.dailyNext() then return end
 	local f = floorInfo()
 	if f and f.cur == 1 and (f.unlocked or 1) > 1 then return end -- town: the sell trip handles going back
@@ -3475,7 +3477,40 @@ M.learnDrops = function()
 			if not cache[item][key] then cache[item][key] = true changed = true end
 		end
 	end
+	cache.__floors = cache.__floors or {}
+	if not cache.__floors[tostring(fl)] then cache.__floors[tostring(fl)] = os.time() changed = true end
 	if changed then pcall(function() writefile("auto_farm_drops.json", Http:JSONEncode(cache)) end) end
+end
+-- visit every map you can enter once, just to read its monsters' drops, then go home
+M.scanStart = function()
+	local left = {}
+	for _, f in ipairs(M.floorList()) do if f.ok then left[#left + 1] = f.n end end
+	M.side.scanLeft = left
+	M.side.scanTrip = os.time()
+	saveState()
+	log(("reading monster drops on %d maps"):format(#left))
+end
+M.scanTick = function()
+	local sd = M.side
+	if not sd.scanLeft then return false end
+	if inDungeon() then return false end
+	local cur = currentFloor()
+	if not cur then return false end
+	M._nextLearn = 0
+	M.learnDrops()
+	for i = #sd.scanLeft, 1, -1 do if sd.scanLeft[i] == cur then table.remove(sd.scanLeft, i) end end
+	local nxt = sd.scanLeft[1]
+	if not nxt then
+		sd.scanLeft, sd.scanTrip = nil, nil
+		saveState()
+		log("monster drops: read on every map")
+		pcall(M.goHome)
+		return false
+	end
+	sd.scanTrip = os.time()
+	saveState()
+	if M.travelTo(nxt, "read monster drops") then task.wait(20) else table.remove(sd.scanLeft, 1) end
+	return true
 end
 -- hunt one kind of monster on this map for a while
 M.farmMob = function(name, secs)
@@ -3559,6 +3594,7 @@ local function scheduler()
 					log(("TP unlocked %d/%d"):format(open, all))
 				end
 			end
+			if M.scanTick() then return end
 			if M.tpTourTick() then return end
 			M.upgradeGear()
 			pcall(M.gearTick)
@@ -3809,7 +3845,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20p"
+M.VERSION = "v20q"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4803,6 +4839,13 @@ do
 		end)
 	end
 	local h = card(R, "How It Works", "?")
+	textRow(h, function()
+		local known = {}
+		for fl in pairs((M.loadDrops()).__floors or {}) do known[#known + 1] = fl end
+		table.sort(known)
+		return ("Monster drops known for maps: %s%s"):format(hl(#known > 0 and table.concat(known, ", ") or "none yet"), M.side.scanLeft and ("  -  reading, " .. #M.side.scanLeft .. " to go") or "")
+	end)
+	buttonRow(h, "Read monster drops on every map now", nil, function() M.scanStart() M.running = true end)
 	textRow(h, "Monster drops: the game only shows what the monsters of the map you are on drop. The script remembers it for every map you visit (the TP point tour visits them all), so an item that shows \"no source\" can turn \"farmable\" later.")
 	textRow(h, "Pet and Mount: picked ones are put on as soon as you own them. They can't be farmed: the card shows where they come from (Tower floors, shop boxes bought with Bleeter Bits, chests...). The script never buys boxes.")
 	textRow(h, "For every slot you fill: if you don't own it yet, the Priority row \"Gear goals\" runs the dungeon / boss that drops it until it drops. Then it is upgraded up to the level you set (0 = your own level; it can never go above you), and when it is short of upgrade crystals it runs the dungeons that give those. It is worn in its hand / as armor as soon as you can wear it. Daily bosses, crafting, chests and shops are shown but not farmed here. Coins under \"keep coins\" are never spent.")
@@ -5046,7 +5089,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20p loaded")
+log("AUTO v20q loaded")
 
 end, debug.traceback)
 if not __ok then
