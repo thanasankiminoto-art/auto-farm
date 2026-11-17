@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794928584
+--@@BUILD 1794928624
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4028,7 +4028,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21b"
+M.VERSION = "v21c"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5210,7 +5210,9 @@ genv.__AutoAll = M
 do
 	local st = loadState()
 	if st then
-		for k, v in pairs(st.opt or {}) do if M.opt[k] ~= nil then M.opt[k] = v end end
+		-- every saved option comes back, including ones added after the defaults (modes, keep lists, window size)
+		for k, v in pairs(st.opt or {}) do M.opt[k] = v end
+		pcall(function() if M.fitUI then M.fitUI() end end)
 		for k, v in pairs(st.statW or {}) do M.statW[k] = v end
 		for k, v in pairs(st.statT or {}) do M.statT[k] = tonumber(v) end
 		for k, v in pairs(st.on or {}) do if M.on[k] ~= nil then M.on[k] = v end end
@@ -5344,7 +5346,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21b loaded")
+log("AUTO v21c loaded")
 
 end, debug.traceback)
 if not __ok then
