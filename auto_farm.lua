@@ -3765,8 +3765,9 @@ M.questTripEnd = function(why)
 	sd.oldSkip = sd.oldSkip or {}
 	local list = sd.questFloor and (M.questBookCached())[tostring(sd.questFloor)] or {}
 	local open = 0
-	for id in pairs(list) do
-		if not done[id] then sd.oldSkip[id] = os.time() + 3 * 3600 open += 1 end
+	for id, e in pairs(list) do
+		local isDaily = tostring(id):find("Daily") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
+		if not done[id] and not isDaily then sd.oldSkip[id] = os.time() + 3 * 3600 open += 1 end
 	end
 	log(("quest trip to map %s over (%s)%s"):format(tostring(sd.questFloor), why, open > 0 and (" - %d left there, next try in 3 h"):format(open) or ""))
 	sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = nil, nil, nil, nil, nil
@@ -4305,7 +4306,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21r"
+M.VERSION = "v21s"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5729,7 +5730,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21r loaded")
+log("AUTO v21s loaded")
 
 end, debug.traceback)
 if not __ok then
