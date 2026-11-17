@@ -3673,12 +3673,93 @@ M.learnDrops = function()
 	if not cache.__mobFloors[tostring(fl)] then cache.__mobFloors[tostring(fl)] = os.time() changed = true end
 	if changed then pcall(function() writefile("auto_farm_drops.json", Http:JSONEncode(cache)) end) end
 end
+-- every quest giver seen on each map, kept in auto_farm_quests.json (shared by all accounts on this PC):
+-- the game only shows the quest givers of the map you stand on, so the full list grows as maps are visited
+M.loadQuestBook = function()
+	local ok, t = pcall(function() return Http:JSONDecode(readfile("auto_farm_quests.json")) end)
+	return ok and type(t) == "table" and t or {}
+end
+M.learnQuests = function()
+	if inDungeon() or os.clock() < (M._nextQuestLearn or 0) then return end
+	M._nextQuestLearn = os.clock() + 120
+	local fl = currentFloor()
+	local npcs = workspace:FindFirstChild("NPCs")
+	if not fl or not npcs or #npcs:GetChildren() < 3 then return end
+	local book = M.loadQuestBook()
+	local key = tostring(fl)
+	book[key] = book[key] or {}
+	local changed = false
+	for _, n in ipairs(npcs:GetChildren()) do
+		local ni = n:FindFirstChild("NPCInfo")
+		local id = ni and ni:GetAttribute("ID")
+		local tree = ni and ni:FindFirstChild("DialogTree")
+		if id and tree and tree:FindFirstChild("StartQuestCMD", true) then
+			local e = book[key][id]
+			local title = tostring(ni:GetAttribute("Title") or id)
+			if not e or e.t ~= title then
+				book[key][id] = {
+					t = title, npc = n.Name, ty = tostring(ni:GetAttribute("Type") or ""),
+					mob = ni:GetAttribute("MobToKill"), obj = ni:GetAttribute("ObjectToFind"), amt = ni:GetAttribute("Amount"),
+				}
+				changed = true
+			end
+		end
+	end
+	if changed then pcall(function() writefile("auto_farm_quests.json", Http:JSONEncode(book)) end) end
+end
+-- text for the Quests page: per map, done / all known, and what is left
+M.questBookText = function()
+	local d = data()
+	if not d then return "..." end
+	local W = function(v) return ('<font color="#E9EEEA">%s</font>'):format(tostring(v)) end
+	local done = d.Data.Quests.CompletedQuests or {}
+	local prog = {}
+	for _, q in ipairs(quests()) do prog[q.ID] = q end
+	local book = M.loadQuestBook()
+	local out = {}
+	local totalLeft = 0
+	for _, f in ipairs(M.floorList()) do
+		local list = book[tostring(f.n)]
+		if not list then
+			out[#out + 1] = ("%s: %s"):format(W(f.n .. " " .. tostring(f.name)), f.ok and "not seen yet (fills in after a visit)" or '<font color="#9aa29c">locked</font>')
+		else
+			local ids = {}
+			for id in pairs(list) do ids[#ids + 1] = id end
+			table.sort(ids)
+			local nDone, left, daily, nStory = 0, {}, 0, 0
+			for _, id in ipairs(ids) do
+				local e = list[id]
+				local q = prog[id]
+				local isDaily = tostring(id):find("Daily") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
+				if isDaily then
+					if not q then daily += 1 end
+				elseif done[id] and not q then
+					nStory += 1
+					nDone += 1
+				else
+					nStory += 1
+					local what = e.mob and ("kill " .. tostring(e.amt or "") .. " " .. tostring(e.mob)) or e.obj and ("find " .. tostring(e.obj)) or tostring(e.ty)
+					local st = q and ('<font color="#E8C15A">doing %s/%s</font>'):format(tostring(q.Progress or 0), tostring(q.Amount or 1)) or '<font color="#d65656">not taken</font>'
+					left[#left + 1] = ("   - %s (%s: %s) %s"):format(tostring(e.t), tostring(e.npc), what, st)
+				end
+			end
+			totalLeft += #left
+			out[#out + 1] = ("%s: %s%d / %d story quests done%s%s"):format(W(f.n .. " " .. tostring(f.name)), #left == 0 and '<font color="#6ED876">all </font>' or "", nDone, nStory,
+				daily > 0 and (" + %d daily"):format(daily) or "", f.ok and "" or ' <font color="#9aa29c">(map locked)</font>')
+			for _, l in ipairs(left) do out[#out + 1] = l end
+		end
+	end
+	table.insert(out, 1, ("Story quests left on the maps seen so far: %s  (daily quests come back every day and are not counted)"):format(W(totalLeft)))
+	return table.concat(out, "\n")
+end
+
 -- visit every map you can enter once, just to read its monsters' drops, then go home
 M.scanStart = function(onlyMissing)
 	local left = {}
 	local known = (M.loadDrops()).__mobFloors or {}
+	local qb = M.loadQuestBook()
 	for _, f in ipairs(M.floorList()) do
-		if f.ok and not (onlyMissing and known[tostring(f.n)]) then left[#left + 1] = f.n end
+		if f.ok and not (onlyMissing and known[tostring(f.n)] and qb[tostring(f.n)]) then left[#left + 1] = f.n end
 	end
 	if #left == 0 then return end
 	M.side.scanLeft = left
@@ -3691,8 +3772,9 @@ M.scanTick = function()
 	-- a map you can enter whose monster drops were never read (new PC, new map): go read it once, by itself
 	if not sd.scanLeft and not inDungeon() and os.time() - (sd.autoScanAt or 0) > 6 * 3600 then
 		local known = (M.loadDrops()).__mobFloors or {}
+		local qb = M.loadQuestBook()
 		for _, f in ipairs(M.floorList()) do
-			if f.ok and not known[tostring(f.n)] then
+			if f.ok and not (known[tostring(f.n)] and qb[tostring(f.n)]) then
 				sd.autoScanAt = os.time()
 				log("monster drops: map " .. f.n .. " never read - reading the missing maps")
 				M.scanStart(true)
@@ -3706,6 +3788,8 @@ M.scanTick = function()
 	if not cur then return false end
 	M._nextLearn = 0
 	M.learnDrops()
+	M._nextQuestLearn = 0
+	pcall(M.learnQuests)
 	for i = #sd.scanLeft, 1, -1 do if sd.scanLeft[i] == cur then table.remove(sd.scanLeft, i) end end
 	local nxt = sd.scanLeft[1]
 	if not nxt then
@@ -3886,6 +3970,7 @@ local function scheduler()
 			M.upgradeGear()
 			pcall(M.gearTick)
 			pcall(M.learnDrops)
+			pcall(M.learnQuests)
 			M.craftBetter()
 			M.dropForeignQuests()
 			M.collectOrbs()
@@ -4134,7 +4219,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21n"
+M.VERSION = "v21q"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4634,6 +4719,9 @@ do
 		end
 		return #t > 0 and table.concat(t, "\n") or "No quests"
 	end, 90)
+	local qb = card(R, "All Quests By Map", "A")
+	textRow(qb, function() return M.questBookText() end, 120)
+	textRow(qb, "The game only shows a map's quest givers while you are on it, so each map's list fills in on the first visit (the drop / TP tours visit them all). Quests that open later in a chain show up once they appear.")
 end
 
 -- COMBAT
@@ -5553,7 +5641,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21n loaded")
+log("AUTO v21q loaded")
 
 end, debug.traceback)
 if not __ok then
