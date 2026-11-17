@@ -3635,9 +3635,13 @@ M.learnDrops = function()
 	if changed then pcall(function() writefile("auto_farm_drops.json", Http:JSONEncode(cache)) end) end
 end
 -- visit every map you can enter once, just to read its monsters' drops, then go home
-M.scanStart = function()
+M.scanStart = function(onlyMissing)
 	local left = {}
-	for _, f in ipairs(M.floorList()) do if f.ok then left[#left + 1] = f.n end end
+	local known = (M.loadDrops()).__floors or {}
+	for _, f in ipairs(M.floorList()) do
+		if f.ok and not (onlyMissing and known[tostring(f.n)]) then left[#left + 1] = f.n end
+	end
+	if #left == 0 then return end
 	M.side.scanLeft = left
 	M.side.scanTrip = os.time()
 	saveState()
@@ -3645,6 +3649,18 @@ M.scanStart = function()
 end
 M.scanTick = function()
 	local sd = M.side
+	-- a map you can enter whose monster drops were never read (new PC, new map): go read it once, by itself
+	if not sd.scanLeft and not inDungeon() and os.time() - (sd.autoScanAt or 0) > 6 * 3600 then
+		local known = (M.loadDrops()).__floors or {}
+		for _, f in ipairs(M.floorList()) do
+			if f.ok and not known[tostring(f.n)] then
+				sd.autoScanAt = os.time()
+				log("monster drops: map " .. f.n .. " never read - reading the missing maps")
+				M.scanStart(true)
+				break
+			end
+		end
+	end
 	if not sd.scanLeft then return false end
 	if inDungeon() then return false end
 	local cur = currentFloor()
@@ -4079,7 +4095,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21j"
+M.VERSION = "v21k"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5227,7 +5243,7 @@ do
 			else mark = '<font color="#d65656">not read</font>' end
 			parts[#parts + 1] = ("%d %s: %s"):format(f.n, tostring(f.name), mark)
 		end
-		local head = "Monster drops read per map:"
+		local head = "Monster drops read per map (a map you can enter that isn't read yet gets read by itself):"
 		local sl = M.side.scanLeft
 		if sl then
 			head = ('<font color="#E8C15A">Reading now</font> - %d map(s) to go%s'):format(#sl, sl[1] and (", next: map " .. sl[1]) or "")
@@ -5236,22 +5252,6 @@ do
 		end
 		return head .. "\n" .. table.concat(parts, "\n")
 	end, 110)
-	local scanBtn
-	scanBtn = buttonRow(h, "Read monster drops on every map now", nil, function()
-		if M.side.scanLeft then
-			M.side.scanLeft, M.side.scanTrip = nil, nil
-			saveState()
-			log("monster drops: reading cancelled")
-		else
-			M.scanStart()
-			M.running = true
-		end
-	end)
-	refreshers[#refreshers + 1] = function()
-		local sl = M.side.scanLeft
-		scanBtn.Text = sl and ("Reading... %d map(s) to go  (tap to cancel)"):format(#sl) or "Read monster drops on every map now"
-		scanBtn.BackgroundColor3 = sl and C.hover or C.field
-	end
 	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
 	textRow(h, function()
 		local st = M.side.gearStreak or 0
@@ -5514,7 +5514,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21j loaded")
+log("AUTO v21k loaded")
 
 end, debug.traceback)
 if not __ok then
