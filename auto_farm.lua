@@ -3307,7 +3307,14 @@ M.gearSources = function(itemName)
 	for name, x in pairs(info.DailyBosses or {}) do if has(x) then add("daily", "DAILY:" .. name, "Daily boss " .. name .. " (once a day)", tonumber(x.Floor), false) end end
 	for key in pairs((M.loadDrops())[itemName] or {}) do
 		local mob, fl = tostring(key):match("^(.+)@(%d+)$")
-		if mob then add("mob", "MOB:" .. key, "Monster " .. mob, tonumber(fl), true) end
+		if mob then
+			local miss = M.side.mobMissing and M.side.mobMissing[mob]
+			if miss and os.time() - miss < 1200 then
+				add("mob", "MOB:" .. key, ("Monster %s (rare spawn - not on the map lately; killed whenever it shows up, map trip again in %d min)"):format(mob, math.ceil((1200 - (os.time() - miss)) / 60)), tonumber(fl), false)
+			else
+				add("mob", "MOB:" .. key, "Monster " .. mob, tonumber(fl), true)
+			end
+		end
 	end
 	if info.Recipes and info.Recipes[itemName] then
 		add("craft", nil, ("Crafting (needs Lv %s + materials)"):format(tostring(info.Recipes[itemName].Level or "?")), nil, false)
@@ -3646,6 +3653,7 @@ M.scanTick = function()
 		sd.scanLeft, sd.scanTrip = nil, nil
 		saveState()
 		log("monster drops: read on every map")
+		M._scanDoneAt = os.clock()
 		pcall(M.goHome)
 		return false
 	end
@@ -3674,8 +3682,17 @@ M.farmMob = function(name, secs)
 		end
 		if not best then
 			status("Gear: waiting for " .. name .. " to spawn")
+			-- some monsters are rare / timed spawns (not always on the map): don't sit there for the whole turn
+			if killed == 0 and os.clock() - t0 > 60 then
+				M.side.mobMissing = M.side.mobMissing or {}
+				M.side.mobMissing[name] = os.time()
+				saveState()
+				log(("gear: %s is not on the map (rare spawn) - other places first, it gets killed whenever it shows up"):format(name))
+				break
+			end
 			task.wait(2)
 		else
+			if M.side.mobMissing then M.side.mobMissing[name] = nil end
 			status(("Gear: hunting %s for %s (%d killed)"):format(name, tostring(M.gearFarmFor), killed))
 			if bd > 250 then warpToward(mobPos(best)) end
 			pcall(kill, best)
@@ -3685,6 +3702,33 @@ M.farmMob = function(name, secs)
 	release()
 	if killed > 0 then log(("gear: killed %d x %s"):format(killed, name)) end
 	return killed
+end
+
+-- a wanted rare monster shows up on the map you're on: hunt it right away
+M.gearRareTick = function()
+	if inDungeon() or not M.side.mobMissing or not next(M.side.mobMissing) then return false end
+	if os.clock() < (M._nextRare or 0) then return false end
+	M._nextRare = os.clock() + 10
+	local cur = currentFloor()
+	local se = workspace:FindFirstChild("SpawnedEntities")
+	if not cur or not se then return false end
+	for _, n in ipairs(M.gearNeeds or {}) do
+		for key in pairs((M.loadDrops())[n.item] or {}) do
+			local mob, fl = tostring(key):match("^(.+)@(%d+)$")
+			if mob and tonumber(fl) == cur and M.side.mobMissing[mob] then
+				for _, e in ipairs(se:GetChildren()) do
+					local h = e.Name == mob and e:FindFirstChildOfClass("Humanoid")
+					if h and h.Health > 0 then
+						log(("gear: %s showed up - hunting it for %s"):format(mob, n.item))
+						M.gearFarmFor = n.item
+						M.farmMob(mob, 120)
+						return true
+					end
+				end
+			end
+		end
+	end
+	return false
 end
 
 -- the places to run for the first thing that is still missing (Priority row "Gear goals")
@@ -3777,6 +3821,7 @@ local function scheduler()
 				end
 			end
 			if M.scanTick() then return end
+			if M.gearRareTick() then return end
 			if M.tpTourTick() then return end
 			pcall(M.gearMeasure) -- count what the last run gave before upgrades spend it
 			M.upgradeGear()
@@ -4030,7 +4075,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21g"
+M.VERSION = "v21i"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5169,12 +5214,40 @@ do
 	local h = card(R, "How It Works", "?")
 
 	textRow(h, function()
-		local known = {}
-		for fl in pairs((M.loadDrops()).__floors or {}) do known[#known + 1] = fl end
-		table.sort(known)
-		return ("Monster drops known for maps: %s%s"):format(hl(#known > 0 and table.concat(known, ", ") or "none yet"), M.side.scanLeft and ("  -  reading, " .. #M.side.scanLeft .. " to go") or "")
+		local fl = (M.loadDrops()).__floors or {}
+		local parts = {}
+		for _, f in ipairs(M.floorList()) do
+			local mark
+			if fl[tostring(f.n)] then mark = '<font color="#6ED876">done</font>'
+			elseif not f.ok then mark = '<font color="#9aa29c">locked</font>'
+			else mark = '<font color="#d65656">not read</font>' end
+			parts[#parts + 1] = ("%d %s: %s"):format(f.n, tostring(f.name), mark)
+		end
+		local head = "Monster drops read per map:"
+		local sl = M.side.scanLeft
+		if sl then
+			head = ('<font color="#E8C15A">Reading now</font> - %d map(s) to go%s'):format(#sl, sl[1] and (", next: map " .. sl[1]) or "")
+		elseif M._scanDoneAt then
+			head = ('<font color="#6ED876">Finished</font> %s ago. Monster drops read per map:'):format(math.floor((os.clock() - M._scanDoneAt) / 60) .. " min")
+		end
+		return head .. "\n" .. table.concat(parts, "\n")
+	end, 110)
+	local scanBtn
+	scanBtn = buttonRow(h, "Read monster drops on every map now", nil, function()
+		if M.side.scanLeft then
+			M.side.scanLeft, M.side.scanTrip = nil, nil
+			saveState()
+			log("monster drops: reading cancelled")
+		else
+			M.scanStart()
+			M.running = true
+		end
 	end)
-	buttonRow(h, "Read monster drops on every map now", nil, function() M.scanStart() M.running = true end)
+	refreshers[#refreshers + 1] = function()
+		local sl = M.side.scanLeft
+		scanBtn.Text = sl and ("Reading... %d map(s) to go  (tap to cancel)"):format(#sl) or "Read monster drops on every map now"
+		scanBtn.BackgroundColor3 = sl and C.hover or C.field
+	end
 	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
 	textRow(h, function()
 		local st = M.side.gearStreak or 0
@@ -5437,7 +5510,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21g loaded")
+log("AUTO v21i loaded")
 
 end, debug.traceback)
 if not __ok then
