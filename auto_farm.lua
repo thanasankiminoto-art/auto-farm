@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794922294
+--@@BUILD 1794922633
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1600,6 +1600,7 @@ local function enterDungeon(name)
 		M.side.gearFarmAt = os.time()
 		if fl and cur and fl ~= cur then
 			saveState()
+			M._gearTravel = true
 			if M.travelTo(fl, "hunt " .. tostring(mob)) then task.wait(20) end
 			return
 		end
@@ -1616,6 +1617,7 @@ local function enterDungeon(name)
 			M.side.gearFarmFloor = fl
 			M.side.gearFarmAt = os.time()
 			saveState()
+			M._gearTravel = true
 			if not M.travelTo(fl, (name:gsub("^BOSS:", "boss "))) then M.side.cataTrip = nil return end
 			task.wait(20)
 			return
@@ -3124,13 +3126,31 @@ M.backHome = function()
 	if M.travelTo(n, "home map") then task.wait(20) return true end
 	return false
 end
+-- gear farming needs many runs in a row (20 dungeon runs for a few upgrades is normal):
+-- once it starts it keeps going for "Gear runs in a row" runs before the list moves on.
+-- A trip to another map does not count as a run.
+M.gearStreakRun = function()
+	local sd = M.side
+	if not (M.prio.on.gear and (sd.gearStreak or 0) > 0) then return false end
+	if #M.prioKeys("gear") == 0 then sd.gearStreak = 0 return false end
+	M._gearTravel = false
+	M.prio.last.gear = os.time()
+	local ok = M.prioRun("gear", true)
+	if not M._gearTravel then sd.gearStreak = (sd.gearStreak or 1) - 1 end
+	saveState()
+	return ok
+end
 M.prioTick = function()
 	M.prioMigrate()
 	local pr = M.prio
 	pr.last = pr.last or {}
 	for _, id in ipairs(pr.order) do
+		if pr.on[id] and (id == "floor" or id == "daily") and M.prioRun(id, false) then return true end
+	end
+	if M.gearStreakRun() then return true end
+	for _, id in ipairs(pr.order) do
 		if pr.on[id] and id == "quests" and not M._noQuestWork and M.backHome() then return true end -- quests left at home
-		if pr.on[id] and (id == "floor" or id == "daily" or id == "quests") and M.prioRun(id, false) then return true end
+		if pr.on[id] and id == "quests" and M.prioRun(id, false) then return true end
 	end
 	-- the repeatable ones take turns: whoever went longest ago goes next (list order breaks ties);
 	-- one still inside its waiting time is skipped unless nothing else is ready
@@ -3151,6 +3171,11 @@ M.prioTick = function()
 	if id then
 		if (id == "dungeons" or id == "boss") and M.backHome() then return true end
 		pr.last[id] = now
+		if id == "gear" then
+			local n = tonumber(M.opt.gearRuns) or 10
+			M.side.gearStreak = n <= 0 and 1e9 or n
+			return M.gearStreakRun()
+		end
 		return M.prioRun(id, true)
 	end
 	return false
@@ -3891,7 +3916,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20s"
+M.VERSION = "v20t"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4892,6 +4917,12 @@ do
 		return ("Monster drops known for maps: %s%s"):format(hl(#known > 0 and table.concat(known, ", ") or "none yet"), M.side.scanLeft and ("  -  reading, " .. #M.side.scanLeft .. " to go") or "")
 	end)
 	buttonRow(h, "Read monster drops on every map now", nil, function() M.scanStart() M.running = true end)
+	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
+	textRow(h, function()
+		local st = M.side.gearStreak or 0
+		if st <= 0 then return "Not farming gear right now." end
+		return ("Farming gear: %s runs left in this turn%s"):format(hl(st > 1e8 and "until done" or st), M.gearFarmFor and (" - for " .. hl(M.gearFarmFor)) or "")
+	end)
 	textRow(h, "Monster drops: the game only shows what the monsters of the map you are on drop. The script remembers it for every map you visit (the TP point tour visits them all), so an item that shows \"no source\" can turn \"farmable\" later.")
 	textRow(h, "Pet and Mount: picked ones are put on as soon as you own them. They can't be farmed: the card shows where they come from (Tower floors, shop boxes bought with Bleeter Bits, chests...). The script never buys boxes.")
 	textRow(h, "For every slot you fill: if you don't own it yet, the Priority row \"Gear goals\" runs the dungeon / boss that drops it until it drops. Then it is upgraded up to the level you set (0 = your own level; it can never go above you), and when it is short of upgrade crystals it runs the dungeons that give those. It is worn in its hand / as armor as soon as you can wear it. Daily bosses, crafting, chests and shops are shown but not farmed here. Coins under \"keep coins\" are never spent.")
@@ -5135,7 +5166,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20s loaded")
+log("AUTO v20t loaded")
 
 end, debug.traceback)
 if not __ok then
