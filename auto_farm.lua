@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794922633
+--@@BUILD 1794922848
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1601,6 +1601,8 @@ local function enterDungeon(name)
 		if fl and cur and fl ~= cur then
 			saveState()
 			M._gearTravel = true
+			M.side.gearPending = nil
+			saveState()
 			if M.travelTo(fl, "hunt " .. tostring(mob)) then task.wait(20) end
 			return
 		end
@@ -1618,6 +1620,8 @@ local function enterDungeon(name)
 			M.side.gearFarmAt = os.time()
 			saveState()
 			M._gearTravel = true
+			M.side.gearPending = nil
+			saveState()
 			if not M.travelTo(fl, (name:gsub("^BOSS:", "boss "))) then M.side.cataTrip = nil return end
 			task.wait(20)
 			return
@@ -3133,9 +3137,18 @@ M.gearStreakRun = function()
 	local sd = M.side
 	if not (M.prio.on.gear and (sd.gearStreak or 0) > 0) then return false end
 	if #M.prioKeys("gear") == 0 then sd.gearStreak = 0 return false end
+	M.gearMeasure()
 	M._gearTravel = false
 	M.prio.last.gear = os.time()
+	local keys = M.prioKeys("gear")
+	local item = M.gearFarmFor
+	-- saved before going in: entering a dungeon teleports, and this code does not run on after that
+	if keys[1] and item then
+		sd.gearPending = { key = keys[1], item = item, have = M.gearHave(item), t = os.time() }
+		saveState()
+	end
 	local ok = M.prioRun("gear", true)
+	if M._gearTravel then sd.gearPending = nil end
 	if not M._gearTravel then sd.gearStreak = (sd.gearStreak or 1) - 1 end
 	saveState()
 	return ok
@@ -3617,23 +3630,56 @@ M.farmMob = function(name, secs)
 end
 
 -- the places to run for the first thing that is still missing (Priority row "Gear goals")
+-- how much of the wanted thing you hold right now (materials: the stack, gear: number of copies)
+M.gearHave = function(item)
+	local d = data()
+	if not d then return 0 end
+	local inv = d.Data.Inventory
+	if inv.Materials and inv.Materials[item] then return tonumber(inv.Materials[item]) or 0 end
+	local n = 0
+	for _, cls in ipairs({ "Weapons", "Armor" }) do
+		for _, it in pairs(inv[cls] or {}) do if type(it) == "table" and it.Name == item then n += 1 end end
+	end
+	return n
+end
+-- each place is measured: what it gave per minute. Every place is tried twice, then the best one is used.
+M.gearMeasure = function()
+	local sd = M.side
+	local pend = sd.gearPending
+	if not pend or inDungeon() then return end
+	sd.gearPending = nil
+	local gain = math.max(0, M.gearHave(pend.item) - (pend.have or 0))
+	local secs = math.max(30, os.time() - (pend.t or os.time()))
+	sd.gearStat = sd.gearStat or {}
+	local st = sd.gearStat[pend.item .. "|" .. pend.key] or { runs = 0, gain = 0, secs = 0 }
+	st.runs, st.gain, st.secs = st.runs + 1, st.gain + gain, st.secs + secs
+	sd.gearStat[pend.item .. "|" .. pend.key] = st
+	log(("gear: %s gave %d %s (%.1f per hour so far)"):format(pend.key, gain, pend.item, st.gain / st.secs * 3600))
+end
 M.gearFarmKeys = function()
-	local out, seen = {}, {}
+	local sd = M.side
+	sd.gearStat = sd.gearStat or {}
 	for _, n in ipairs(M.gearNeeds or {}) do
+		local best, bestRate, untried
 		for _, s in ipairs(M.gearSources(n.item)) do
-			if s.farm and s.ok and not seen[s.key] then
-				seen[s.key] = true
-				out[#out + 1] = s.key
-				if #out >= 3 then break end
+			if s.farm and s.ok then
+				local st = sd.gearStat[n.item .. "|" .. s.key]
+				if not st or st.runs < 2 then
+					untried = untried or s.key
+				else
+					local rate = st.gain / math.max(1, st.secs)
+					if not bestRate or rate > bestRate then best, bestRate = s.key, rate end
+				end
 			end
 		end
-		if #out > 0 then
+		local pick = untried or best
+		if pick then
 			M.gearFarmFor = n.item
-			return out
+			return { pick }
 		end
 	end
 	M.gearFarmFor = nil
-	return out
+	return {}
 end
 
 local function scheduler()
@@ -3670,6 +3716,7 @@ local function scheduler()
 			M.upgradeGear()
 			pcall(M.gearTick)
 			pcall(M.learnDrops)
+			pcall(M.gearMeasure)
 			M.craftBetter()
 			M.dropForeignQuests()
 			M.collectOrbs()
@@ -3916,7 +3963,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20t"
+M.VERSION = "v20u"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4923,6 +4970,17 @@ do
 		if st <= 0 then return "Not farming gear right now." end
 		return ("Farming gear: %s runs left in this turn%s"):format(hl(st > 1e8 and "until done" or st), M.gearFarmFor and (" - for " .. hl(M.gearFarmFor)) or "")
 	end)
+	textRow(h, function()
+		local rows = {}
+		for k, st in pairs(M.side.gearStat or {}) do
+			local item, key = k:match("^(.-)|(.+)$")
+			rows[#rows + 1] = { ("%s: %s - %d runs, %d got, %.1f / hour"):format(tostring(key):gsub("^BOSS:", "boss "):gsub("^MOB:", ""), tostring(item):gsub(" Upgrade Crystal", " crystal"), st.runs, st.gain, st.gain / math.max(1, st.secs) * 3600), st.gain / math.max(1, st.secs) }
+		end
+		table.sort(rows, function(a, b) return a[2] > b[2] end)
+		local t = {}
+		for i, r in ipairs(rows) do if i <= 6 then t[#t + 1] = r[1] end end
+		return #t > 0 and ("Best places so far (each is tried twice, then the best is used):\n" .. table.concat(t, "\n")) or "Each place is tried twice and timed, then the one that gives the most per hour is used."
+	end, 80)
 	textRow(h, "Monster drops: the game only shows what the monsters of the map you are on drop. The script remembers it for every map you visit (the TP point tour visits them all), so an item that shows \"no source\" can turn \"farmable\" later.")
 	textRow(h, "Pet and Mount: picked ones are put on as soon as you own them. They can't be farmed: the card shows where they come from (Tower floors, shop boxes bought with Bleeter Bits, chests...). The script never buys boxes.")
 	textRow(h, "For every slot you fill: if you don't own it yet, the Priority row \"Gear goals\" runs the dungeon / boss that drops it until it drops. Then it is upgraded up to the level you set (0 = your own level; it can never go above you), and when it is short of upgrade crystals it runs the dungeons that give those. It is worn in its hand / as armor as soon as you can wear it. Daily bosses, crafting, chests and shops are shown but not farmed here. Coins under \"keep coins\" are never spent.")
@@ -5166,7 +5224,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20t loaded")
+log("AUTO v20u loaded")
 
 end, debug.traceback)
 if not __ok then
