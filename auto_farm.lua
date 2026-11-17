@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794923686
+--@@BUILD 1794927853
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4004,7 +4004,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20y"
+M.VERSION = "v20z"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4518,6 +4518,31 @@ do
 	textRow(r, "Dungeons are sorted easy to hard. With none picked on a new floor, the hardest one there is used.")
 end
 
+M.gearModeRows = function(body)
+	dropdownRow(body, "Gear mode", function()
+		return {
+			{ "balanced", "Balanced - gear takes turns with everything" },
+			{ "upgrade", "Upgrade first - then EXP until next level" },
+			{ "gearonly", "Gear only - until every pick is done" },
+		}
+	end, function() return M.gearMode() end, function(v)
+		M.opt.gearMode = v
+		M.opt.gearFirst = v == "upgrade"
+		M._nextGearGoal = 0
+		M.running = true
+		if not M.schedRunning then task.spawn(scheduler) end
+	end)
+	textRow(body, function()
+		local m = M.gearMode()
+		if m == "balanced" then
+			return "Balanced: when gear's turn comes it farms \"Gear runs in a row\" runs, then quests, dungeons and the rest get their turns. Slowest for gear, nothing else waits."
+		elseif m == "gearonly" then
+			return "Gear only: once gear's turn comes nothing else runs until every pick is owned and as high as your level allows - including hunting drops you don't have yet (Next floor and Daily boss still go first)."
+		end
+		if M._gearModeOn then return ("Upgrade first - now farming %s; nothing else until the gear matches your level. Hunting drops you don't own still takes normal turns."):format(hl(M.gearFarmFor or "...")) end
+		return "Upgrade first: whenever your gear is below your level it farms upgrade materials before anything else; once it matches, normal farming (quests / dungeons for EXP) until the next level-up. Hunting drops you don't own takes normal turns."
+	end, 60)
+end
 -- PRIORITY
 do
 	local L, R = newPage("prio")
@@ -4568,6 +4593,7 @@ do
 	end
 	local r = card(R, "How It Decides", "?")
 	textRow(r, "Quests run until none is left on the map. Daily bosses are tried once a day. Then Dungeons, Catacombs, Arena, Ether, Boss farm and Tower take turns in list order. Tower / Catacombs / Arena leave after the number of floors you set; Dungeons / Ether / Boss farm wait their minutes before repeating.")
+	M.gearModeRows(card(R, "Gear Mode", "M"))
 	local fg = card(R, "Tower Goal (stop for good)", "G")
 	sliderRow(fg, "Tower: leave after clearing floor", 10, 5000, 10, function()
 		if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end
@@ -4819,6 +4845,7 @@ end
 -- GEAR GOALS
 do
 	local L, R = newPage("gear")
+	M.gearModeRows(card(L, "Gear Mode", "M"))
 	local RARITY_COL = {
 		Common = Color3.fromRGB(170, 170, 170), Uncommon = Color3.fromRGB(100, 255, 0), Rare = Color3.fromRGB(0, 136, 255),
 		["Super Rare"] = Color3.fromRGB(212, 0, 255), Legendary = Color3.fromRGB(255, 191, 0),
@@ -4998,29 +5025,7 @@ do
 		end)
 	end
 	local h = card(R, "How It Works", "?")
-	dropdownRow(h, "Gear mode", function()
-		return {
-			{ "balanced", "Balanced - gear takes turns with everything" },
-			{ "upgrade", "Upgrade first - then EXP until next level" },
-			{ "gearonly", "Gear only - until every pick is done" },
-		}
-	end, function() return M.gearMode() end, function(v)
-		M.opt.gearMode = v
-		M.opt.gearFirst = v == "upgrade"
-		M._nextGearGoal = 0
-		M.running = true
-		if not M.schedRunning then task.spawn(scheduler) end
-	end)
-	textRow(h, function()
-		local m = M.gearMode()
-		if m == "balanced" then
-			return "Balanced: when gear's turn comes it farms \"Gear runs in a row\" runs, then quests, dungeons and the rest get their turns. Slowest for gear, nothing else waits."
-		elseif m == "gearonly" then
-			return "Gear only: once gear's turn comes nothing else runs until every pick is owned and as high as your level allows - including hunting drops you don't have yet (Next floor and Daily boss still go first)."
-		end
-		if M._gearModeOn then return ("Upgrade first - now farming %s; nothing else until the gear matches your level. Hunting drops you don't own still takes normal turns."):format(hl(M.gearFarmFor or "...")) end
-		return "Upgrade first: whenever your gear is below your level it farms upgrade materials before anything else; once it matches, normal farming (quests / dungeons for EXP) until the next level-up. Hunting drops you don't own takes normal turns."
-	end, 60)
+
 	textRow(h, function()
 		local known = {}
 		for fl in pairs((M.loadDrops()).__floors or {}) do known[#known + 1] = fl end
@@ -5288,7 +5293,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20y loaded")
+log("AUTO v20z loaded")
 
 end, debug.traceback)
 if not __ok then
