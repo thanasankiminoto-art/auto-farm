@@ -852,6 +852,21 @@ local function doKill(q)
 			return PE.RequestQuestHint:InvokeServer({ Type = "Kill", MobToKill = q.MobToKill })
 		end)
 		if not ok or typeof(hint) ~= "Vector3" then
+			-- the monster lives on another map (e.g. the Mission Board's daily kill): go there
+			local mf = M.loadDrops and ((M.loadDrops()).__mobFloor or {})[tostring(q.MobToKill)]
+			local cur = M.currentFloor()
+			local sd = M.side
+			sd.questTried = sd.questTried or {}
+			local okFloor = false
+			for _, f in ipairs(M.floorList()) do if f.n == mf and f.ok then okFloor = true end end
+			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
+				sd.questTried[q.MobToKill] = os.time()
+				sd.questTrip, sd.questMob = os.time(), q.MobToKill
+				M.saveState()
+				log(("%s lives on map %d - going there for the quest"):format(tostring(q.MobToKill), mf))
+				if M.travelTo(mf, "quest " .. tostring(q.MobToKill)) then task.wait(20) end
+				return false
+			end
 			log("no location for " .. tostring(q.MobToKill))
 			return false
 		end
@@ -1443,6 +1458,8 @@ local function currentFloor()
 	return nil
 end
 M.currentFloor = currentFloor
+M.inDungeon = inDungeon
+M.saveState = saveState
 
 local function instData()
 	for _, r in pairs(RC._replicas) do
@@ -2599,6 +2616,11 @@ M.goHome = function()
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
 	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
+	if M.side.questTrip and os.time() - M.side.questTrip < 1800 then -- here for a quest's monster
+		for _, q in ipairs(quests()) do
+			if q.MobToKill == M.side.questMob and (q.Progress or 0) < (q.Amount or 1) then return end
+		end
+	end
 	-- farming gear drops / crystals on this map: stay until that is done
 	if M.prio.enabled and (M.prio.on.gear or M.gearMode() == "upgrade") and M.side.gearFarmFloor == currentFloor() and os.time() - (M.side.gearFarmAt or 0) < 1800 then return end
 	-- in the middle of the daily boss tour: go straight to the next boss map, home comes after the last one
@@ -2671,6 +2693,11 @@ local function progressTick()
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
 	if M.side.tpTrip and os.time() - M.side.tpTrip < 600 then return end -- TP point tour
 	if M.side.scanTrip and os.time() - M.side.scanTrip < 300 then return end -- reading monster drops on every map
+	if M.side.questTrip and os.time() - M.side.questTrip < 1800 then -- here for a quest's monster
+		for _, q in ipairs(quests()) do
+			if q.MobToKill == M.side.questMob and (q.Progress or 0) < (q.Amount or 1) then return end
+		end
+	end
 	if (M.side.daily or (M.prio.enabled and M.prio.on.daily)) and M.dailyNext() then return end
 	local f = floorInfo()
 	if f and f.cur == 1 and (f.unlocked or 1) > 1 then return end -- town: the sell trip handles going back
@@ -3125,6 +3152,13 @@ M.backHome = function()
 	if (sd.towerTrip and now - sd.towerTrip < 300) or (sd.cataTrip and now - sd.cataTrip < 300)
 		or (sd.tpTrip and now - sd.tpTrip < 600) or (sd.scanTrip and now - sd.scanTrip < 300)
 		or (sd.dailyTrip and now - sd.dailyTrip < 600) then return false end
+	-- on another map for a quest's monster: stay until that quest is done (at most 30 min)
+	if sd.questTrip and now - sd.questTrip < 1800 then
+		for _, q in ipairs(quests()) do
+			if q.MobToKill == sd.questMob and (q.Progress or 0) < (q.Amount or 1) then return false end
+		end
+	end
+	sd.questTrip, sd.questMob = nil, nil
 	sd.gearFarmFloor = nil
 	saveState()
 	if M.travelTo(n, "home map") then task.wait(20) return true end
@@ -3617,10 +3651,13 @@ M.learnDrops = function()
 	local fl = currentFloor()
 	if not fl then return end
 	local info = gameInfo() or {}
+	M.dropCache = nil -- other accounts on this PC write the same file: start from what's on disk
 	local cache = M.loadDrops()
 	local changed = false
 	cache.__hp = cache.__hp or {}
 	for ename, e in pairs(info.Enemies or {}) do
+		cache.__mobFloor = cache.__mobFloor or {}
+		if cache.__mobFloor[ename] ~= fl then cache.__mobFloor[ename] = fl changed = true end
 		local hp = type(e) == "table" and e.Values and tonumber(e.Values.Health)
 		if hp and cache.__hp[ename] ~= hp then cache.__hp[ename] = hp changed = true end
 		for item in pairs(type(e) == "table" and e.Drops or {}) do
@@ -3632,12 +3669,14 @@ M.learnDrops = function()
 	end
 	cache.__floors = cache.__floors or {}
 	if not cache.__floors[tostring(fl)] then cache.__floors[tostring(fl)] = os.time() changed = true end
+	cache.__mobFloors = cache.__mobFloors or {}
+	if not cache.__mobFloors[tostring(fl)] then cache.__mobFloors[tostring(fl)] = os.time() changed = true end
 	if changed then pcall(function() writefile("auto_farm_drops.json", Http:JSONEncode(cache)) end) end
 end
 -- visit every map you can enter once, just to read its monsters' drops, then go home
 M.scanStart = function(onlyMissing)
 	local left = {}
-	local known = (M.loadDrops()).__floors or {}
+	local known = (M.loadDrops()).__mobFloors or {}
 	for _, f in ipairs(M.floorList()) do
 		if f.ok and not (onlyMissing and known[tostring(f.n)]) then left[#left + 1] = f.n end
 	end
@@ -3651,7 +3690,7 @@ M.scanTick = function()
 	local sd = M.side
 	-- a map you can enter whose monster drops were never read (new PC, new map): go read it once, by itself
 	if not sd.scanLeft and not inDungeon() and os.time() - (sd.autoScanAt or 0) > 6 * 3600 then
-		local known = (M.loadDrops()).__floors or {}
+		local known = (M.loadDrops()).__mobFloors or {}
 		for _, f in ipairs(M.floorList()) do
 			if f.ok and not known[tostring(f.n)] then
 				sd.autoScanAt = os.time()
@@ -4095,7 +4134,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21k"
+M.VERSION = "v21n"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5234,7 +5273,7 @@ do
 	local h = card(R, "How It Works", "?")
 
 	textRow(h, function()
-		local fl = (M.loadDrops()).__floors or {}
+		local fl = (M.loadDrops()).__mobFloors or {}
 		local parts = {}
 		for _, f in ipairs(M.floorList()) do
 			local mark
@@ -5514,7 +5553,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21k loaded")
+log("AUTO v21n loaded")
 
 end, debug.traceback)
 if not __ok then
