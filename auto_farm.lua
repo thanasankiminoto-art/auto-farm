@@ -3312,7 +3312,8 @@ M.gearSources = function(itemName)
 			if miss and os.time() - miss < 1200 then
 				add("mob", "MOB:" .. key, ("Monster %s (rare spawn - not on the map lately; killed whenever it shows up, map trip again in %d min)"):format(mob, math.ceil((1200 - (os.time() - miss)) / 60)), tonumber(fl), false)
 			else
-				add("mob", "MOB:" .. key, "Monster " .. mob, tonumber(fl), true)
+				local hp = ((M.loadDrops()).__hp or {})[mob]
+				add("mob", "MOB:" .. key, hp and hp >= 15000 and ("Monster %s (strong, %dk HP - may be a rare spawn)"):format(mob, math.floor(hp / 1000)) or "Monster " .. mob, tonumber(fl), true)
 			end
 		end
 	end
@@ -3618,7 +3619,10 @@ M.learnDrops = function()
 	local info = gameInfo() or {}
 	local cache = M.loadDrops()
 	local changed = false
+	cache.__hp = cache.__hp or {}
 	for ename, e in pairs(info.Enemies or {}) do
+		local hp = type(e) == "table" and e.Values and tonumber(e.Values.Health)
+		if hp and cache.__hp[ename] ~= hp then cache.__hp[ename] = hp changed = true end
 		for item in pairs(type(e) == "table" and e.Drops or {}) do
 			item = tostring(item)
 			cache[item] = cache[item] or {}
@@ -4075,7 +4079,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21i"
+M.VERSION = "v21j"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5510,7 +5514,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21i loaded")
+log("AUTO v21j loaded")
 
 end, debug.traceback)
 if not __ok then
