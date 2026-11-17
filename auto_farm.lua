@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794921737
+--@@BUILD 1794921977
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3080,11 +3080,28 @@ M.prioRun = function(id, ignoreCd)
 	return true
 end
 
+-- quests, dungeons and the floor boss belong to the home map: after a trip elsewhere
+-- (gear farming on a lower map, say) go back home before doing them
+M.backHome = function()
+	local n = M.homeTarget()
+	if n <= 0 or M.sellTrip or inDungeon() then return false end
+	local cur = currentFloor()
+	if not cur or cur == n then return false end
+	local sd, now = M.side, os.time()
+	if (sd.towerTrip and now - sd.towerTrip < 300) or (sd.cataTrip and now - sd.cataTrip < 300)
+		or (sd.tpTrip and now - sd.tpTrip < 600) or (sd.scanTrip and now - sd.scanTrip < 300)
+		or (sd.dailyTrip and now - sd.dailyTrip < 600) then return false end
+	sd.gearFarmFloor = nil
+	saveState()
+	if M.travelTo(n, "home map") then task.wait(20) return true end
+	return false
+end
 M.prioTick = function()
 	M.prioMigrate()
 	local pr = M.prio
 	pr.last = pr.last or {}
 	for _, id in ipairs(pr.order) do
+		if pr.on[id] and id == "quests" and not M._noQuestWork and M.backHome() then return true end -- quests left at home
 		if pr.on[id] and (id == "floor" or id == "daily" or id == "quests") and M.prioRun(id, false) then return true end
 	end
 	-- the repeatable ones take turns: whoever went longest ago goes next (list order breaks ties);
@@ -3104,6 +3121,7 @@ M.prioTick = function()
 	end
 	local id = pick(true) or pick(false)
 	if id then
+		if (id == "dungeons" or id == "boss") and M.backHome() then return true end
 		pr.last[id] = now
 		return M.prioRun(id, true)
 	end
@@ -3845,7 +3863,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20q"
+M.VERSION = "v20r"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5089,7 +5107,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20q loaded")
+log("AUTO v20r loaded")
 
 end, debug.traceback)
 if not __ok then
