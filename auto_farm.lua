@@ -86,7 +86,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794927853
+--@@BUILD 1794928195
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3185,10 +3185,34 @@ M.gearModeRun = function()
 	M._gearMatsOnly = false
 	return ok
 end
+-- Level up mode: only what gives EXP, until the next map opens:
+-- next floor (boss + travel), daily bosses, quests, then dungeons and the floor boss in turns.
+-- Gear still gets upgraded / worn whenever you are on the map; nothing is farmed for it.
+M.levelModeRun = function()
+	local pr = M.prio
+	if M.prioRun("floor", false) then return true end
+	if M.prioRun("daily", false) then return true end
+	if not M._noQuestWork and M.backHome() then return true end
+	if M.prioRun("quests", false) then return true end
+	if M.backHome() then return true end
+	local best, bestT
+	for _, id in ipairs({ "dungeons", "boss" }) do
+		if #M.prioKeys(id) > 0 then
+			local t = pr.last[id] or 0
+			if not bestT or t < bestT then best, bestT = id, t end
+		end
+	end
+	if best then
+		pr.last[best] = os.time()
+		return M.prioRun(best, true)
+	end
+	return false
+end
 M.prioTick = function()
 	M.prioMigrate()
 	local pr = M.prio
 	pr.last = pr.last or {}
+	if M.opt.focus == "level" then return M.levelModeRun() end
 	if M.gearModeRun() then return true end
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and (id == "floor" or id == "daily") and M.prioRun(id, false) then return true end
@@ -4004,7 +4028,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v20z"
+M.VERSION = "v21a"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4547,6 +4571,31 @@ end
 do
 	local L, R = newPage("prio")
 	M.prioMigrate()
+	local fc = card(L, "Mode", "F")
+	dropdownRow(fc, "What to do", function()
+		return {
+			{ "normal", "Normal - the Priority list below" },
+			{ "level", "Level up - EXP only, to reach the next map" },
+		}
+	end, function() return M.opt.focus or "normal" end, function(v)
+		M.opt.focus = v
+		M.running = true
+		if not M.schedRunning then task.spawn(scheduler) end
+	end)
+	textRow(fc, function()
+		local d = data()
+		local lv = d and d.Data.Leveling or {}
+		local f = floorInfo and floorInfo()
+		local nextTxt = ""
+		if f and f.nextN and f.needLevel then
+			nextTxt = (f.level or lv.Level or 0) >= f.needLevel and ("  -  next map %s is open"):format(hl(tostring(f.nextName))) or ("  -  next map %s needs Lv %s"):format(hl(tostring(f.nextName)), hl(f.needLevel))
+		end
+		local head = ("Level %s  (%s / %s EXP)%s"):format(hl(lv.Level or "?"), hl(lv.Experience or 0), hl(lv.ExperienceCap or "?"), nextTxt)
+		if (M.opt.focus or "normal") == "level" then
+			return head .. "\nLevel up: next floor, daily bosses, quests, then dungeons and the floor boss in turns. Tower, Catacombs, Arena, Ether and gear farming wait. Gear is still upgraded with whatever drops."
+		end
+		return head .. "\nNormal: everything that is ON in the list below, in its order."
+	end, 50)
 	local b = card(L, "Priority List", "P")
 	toggleRow(b, "Use the priority list", function() return M.prio.enabled end, function(v)
 		M.setPrio(v)
@@ -5293,7 +5342,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v20z loaded")
+log("AUTO v21a loaded")
 
 end, debug.traceback)
 if not __ok then
