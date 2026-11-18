@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794991494
+--@@BUILD 1794991783
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1998,30 +1998,24 @@ local function runDungeon()
 				-- What decides it is the bosses: one that holds you up for more than 8 min means you aren't strong enough yet.
 				if M.side.towerPrizeGoal and not M._goalHit then
 					if key ~= M._prizeKey then
-						-- a boss floor just ended: how long did it take? (thanasan49 needed ~100 s a boss on its 601-floor run)
+						-- a boss floor just ended (= that boss was killed): count it
 						if M._prizeKey and M._prizeKey:sub(1, 4) == "Boss" and M._prizeFloorT then
 							M._prizeBoss = M._prizeBoss or {}
 							table.insert(M._prizeBoss, os.clock() - M._prizeFloorT)
 							local sd = M.side
 							if not sd.towerProven and #M._prizeBoss >= 5 then
-								local t = table.clone(M._prizeBoss)
-								table.sort(t)
-								local med = t[3]
-								if med <= 155 then
-									sd.towerProven = { lv = (data() and data().Data.Leveling.Level) or 0, med = math.floor(med) }
-									log(("tower: 5 bosses down, about %d s each (thanasan49: ~100 s) - strong enough, going on to floor %d"):format(med, sd.towerPrizeGoal))
-								else
-									M._goalHit = true
-									log(("tower: 5 bosses took about %d s each (thanasan49: ~100 s) - not strong enough yet, stopping"):format(med))
-								end
+								-- 5 Tower bosses killed = strong enough for the whole Tower
+								sd.towerProven = { lv = (data() and data().Data.Leveling.Level) or 0 }
+								log(("tower: 5 bosses killed - strong enough, going on to floor %d"):format(sd.towerPrizeGoal))
 								saveState()
 							end
 						end
 						M._prizeKey, M._prizeFloorT = key, os.clock()
 					end
-					if ftype == "Boss" and os.clock() - (M._prizeFloorT or os.clock()) > 480 then
+					if ftype == "Boss" and os.clock() - (M._prizeFloorT or os.clock()) > 1200 then
+						-- not a strength test: only so a boss that can't be hurt doesn't hold the character for hours
 						M._goalHit = true
-						log(("tower: the boss of floor %d takes over 8 min - not strong enough for floor %d yet, stopping"):format(cur, M.side.towerPrizeGoal))
+						log(("tower: stuck on the boss of floor %d for 20 min - leaving"):format(cur))
 					end
 				end
 				if M.side.towerPrizeGoal and cur > M.side.towerPrizeGoal and not M._goalHit then
@@ -4969,7 +4963,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22r"
+M.VERSION = "v22s"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6518,7 +6512,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22r loaded")
+log("AUTO v22s loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
