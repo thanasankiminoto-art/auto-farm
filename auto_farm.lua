@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795015453
+--@@BUILD 1795015811
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3761,7 +3761,7 @@ end
 M.howToGet = function(name)
 	if not name then return nil end
 	local src = M.gearSources(name)
-	local first, farmS, other = nil, nil, {}
+	local first, farmS, chestS, other = nil, nil, nil, {}
 	for _, x in ipairs(src) do
 		if x.kind == "tower" then
 			local fl = M.TOWER_PRIZES[name]
@@ -3770,24 +3770,33 @@ M.howToGet = function(name)
 			local efl, e = M.eggFor(name)
 			local en = tostring(e and e.name or "?")
 			if not en:lower():find("egg$") then en = en .. " egg" end
-			first = first or { farm = ("Roll the %s (map %d) with Coins"):format(en, efl or 0), short = "Roll the egg" }
+			first = first or { farm = ("Roll the %s (map %d) with Coins"):format(en, efl or 0), short = "Roll the egg", kind = "egg" }
 		elseif x.farm then
 			farmS = farmS or x
+		elseif x.kind == "chest" then
+			chestS = x
 		else
 			other[#other + 1] = x.label
 		end
+	end
+	if not first and not farmS and chestS then
+		local _, price, keys = M.chestInfo()
+		first = { farm = ("Roll the Skeleton Chest (%d Skeleton Keys a roll, you have %d)"):format(price, keys), short = "Roll the Skeleton Chest", kind = "chest" }
 	end
 	if not first and farmS then
 		local lbl = farmS.label:gsub("^Monster ", ""):gsub(" %(.*%)$", "")
 		first = { farm = "Farm it: " .. lbl .. (farmS.ok and "" or " (map locked for now)"), short = "Farm it" }
 	end
-	local h = { farm = first and first.farm, farmShort = first and first.short }
-	if first then
+	local h = { farm = first and first.farm, farmShort = first and first.short, kind = first and first.kind }
+	local rollOff = (h.kind == "egg" or h.kind == "chest") and M.opt.eggRoll ~= true
+	if first and rollOff then
+		h.note = '<font color="#e0b040">Rolling is OFF: turn it on in Gear Goals > How It Works ("Roll eggs / Skeleton Chest..."), or nothing is rolled.</font>'
+	elseif first then
 		h.note = #other > 0 and ("Also from: " .. table.concat(other, "; ") .. " (not done by the script; Bleeter Bits / Robux are never spent).") or ""
 	elseif #other > 0 then
 		h.note = '<font color="#e0b040">The script can\'t farm this one: it only comes from ' .. table.concat(other, "; ") .. '. Bleeter Bits / Robux are never spent, so the market is the only way.</font>'
 	else
-		h.note = '<font color="#d65656">No known way to get it in the game (event / removed item?). Only the market.</font>'
+		h.note = '<font color="#d65656">Not in any egg, chest, drop or prize seen so far (an event item, or in the egg of a map not reached yet). Only the market for now.</font>'
 	end
 	return h
 end
@@ -4315,6 +4324,50 @@ M.eggChance = function(name, e)
 		if x and x.Rarity == def.Rarity then same += 1 end
 	end
 	return (tonumber(ch[def.Rarity]) or 0) / math.max(1, same)
+end
+-- v23g: the Skeleton Chest is a free roll (Skeleton Keys, a material you farm) - never Coins / Bleeter Bits
+M.chestInfo = function()
+	local ch, price
+	for _, r in pairs(RC._replicas) do
+		if r.Class == "SkeletonChest" then ch = r end
+		if r.Class == "Info" and r.Data._GameData then
+			price = tonumber(r.Data._GameData.Prices and r.Data._GameData.Prices.SKELETON_CHEST and r.Data._GameData.Prices.SKELETON_CHEST.SkeletonKeys)
+		end
+	end
+	local d = data()
+	local keys = d and (d.Data.Inventory.Materials or {})["Skeleton Key"] or 0
+	return ch, price or 25, keys
+end
+M.chestTick = function()
+	if M.opt.eggRoll ~= true or inDungeon() or M.sellTrip then return false end
+	if os.clock() < (M._chestNext or 0) then return false end
+	M._chestNext = os.clock() + 20
+	local ch, price, keys = M.chestInfo()
+	if not ch then return false end
+	local inChest = {}
+	for _, v in pairs(ch.Data.Items or {}) do if type(v) == "table" and v.Name then inChest[v.Name] = true end end
+	local G = M.gearCfg()
+	local want
+	for _, sl in ipairs(M.GEAR_SLOTS) do
+		local cfg = G[sl.id]
+		if cfg and cfg.name and cfg.get ~= "buy" and inChest[cfg.name] and #M.gearCopies(sl.cls, cfg.name) == 0 then
+			local h = M.howToGet(cfg.name)
+			if h and h.kind == "chest" then want = { name = cfg.name, cls = sl.cls } break end
+		end
+	end
+	if not want then M.chestState = nil return false end
+	if keys < price then
+		M.chestState = ("%s: Skeleton Chest needs %d Skeleton Keys a roll, you have %d"):format(want.name, price, keys)
+		return false
+	end
+	pcall(function() ch:FireServer("Open") end)
+	task.wait(2)
+	local got = #M.gearCopies(want.cls, want.name) > 0
+	M.side.chestRolls = (M.side.chestRolls or 0) + 1
+	M.chestState = got and (want.name .. ": got it from the Skeleton Chest") or ("%s: %d Skeleton Chest rolls so far"):format(want.name, M.side.chestRolls)
+	log(("skeleton chest: rolled for %s (%d keys) - %s"):format(want.name, price, got and "GOT IT" or "not this time"))
+	pcall(M.saveState)
+	return true
 end
 M.eggTick = function()
 	if M.opt.eggRoll ~= true or inDungeon() or M.sellTrip then return false end
@@ -4859,6 +4912,7 @@ local function scheduler()
 			if sellTick() then return end
 			if M.bountyTick() then return end -- a bounty on this map comes before everything else
 			if M.eggTick() then return end
+			if M.chestTick() then return end
 			if M.mkTick() then pcall(M.goHome) return end
 			if M.mkTripTick() then return end
 			if M.on.unlock then
@@ -5127,7 +5181,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23f"
+M.VERSION = "v23g"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6424,7 +6478,7 @@ do
 	if M.opt.wearStrongest == nil then M.opt.wearStrongest = true end
 	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
-	optToggle(h, "Roll companion eggs for the picked pet / mount (Coins only)", "eggRoll")
+	optToggle(h, "Roll eggs / Skeleton Chest for the picked pet / mount (Coins / Skeleton Keys only)", "eggRoll")
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
 	textRow(h, function() return M.prizeState or "Tower prizes: nothing to fetch" end)
