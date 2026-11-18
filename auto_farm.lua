@@ -2490,7 +2490,11 @@ M.tpTourTick = function()
 		end
 		sd.tpTotal[tostring(cur)] = 0
 	else
-		sd.tpTotal[tostring(cur)] = all
+		-- far points may not be loaded yet (streaming): the count only goes up, never down
+		local dd = data()
+		local saved = 0
+		for _ in pairs(dd and dd.Data.FloorRespawnPoints and dd.Data.FloorRespawnPoints[tostring(cur)] or {}) do saved += 1 end
+		sd.tpTotal[tostring(cur)] = math.max(all, saved, sd.tpTotal[tostring(cur)] or 0)
 	end
 	-- still points to do here (ones that failed wait 10 min; after 2 visits a map counts as done)
 	local waiting = 0
@@ -4321,7 +4325,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21u"
+M.VERSION = "v21v"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4806,8 +4810,10 @@ do
 			local have = 0
 			for _ in pairs(frp[key] or {}) do have += 1 end
 			local total = (M.side.tpTotal or {})[key]
-			if f.n == cur then local o, a = tpCount() have, total = o, a end
-			local txt = not f.ok and '<font color="#9aa29c">locked map</font>' or hl(have .. "/" .. (total and tostring(total) or "?"))
+			if f.n == cur then local o, a = tpCount() total = math.max(a, total or 0) end
+			if total then total = math.max(total, have) end
+			local txt = not f.ok and '<font color="#9aa29c">locked map</font>' or total == 0 and '<font color="#9aa29c">no TP points</font>'
+				or hl(have .. "/" .. (total and tostring(total) or "?"))
 			lines[#lines + 1] = ("%s: %s"):format(f.name, txt)
 		end
 		return table.concat(lines, "\n")
@@ -5745,7 +5751,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21u loaded")
+log("AUTO v21v loaded")
 
 end, debug.traceback)
 if not __ok then
