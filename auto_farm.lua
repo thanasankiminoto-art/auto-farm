@@ -884,7 +884,7 @@ local function doKill(q)
 		repeat
 			task.wait(0.5)
 			target = nearestMob(q.MobToKill)
-		until target or not M.running or not M.on.kill or os.clock() - t0 > 30
+		until target or M.bountyWaiting() or not M.running or not M.on.kill or os.clock() - t0 > 30
 	end
 	if not target then
 		-- everything there is dead: wait for respawns instead of hopping to another quest
@@ -2830,6 +2830,12 @@ M.findBounty = function()
 		end
 	end
 end
+-- a bounty is up on this map (and not given up on): long jobs stop early so it gets done first
+M.bountyWaiting = function()
+	if not M.opt.bounty or M.sellTrip or inDungeon() then return false end
+	local mob = M.findBounty()
+	return mob ~= nil and ((M._bountySkip and M._bountySkip[mob]) or 0) <= os.clock()
+end
 M.bountyTick = function()
 	if not M.opt.bounty or M.sellTrip or inDungeon() then return false end
 	local mob = M.findBounty()
@@ -3904,6 +3910,7 @@ end
 M.farmMob = function(name, secs)
 	local t0, killed = os.clock(), 0
 	while os.clock() - t0 < secs and M.running and not inDungeon() do
+		if M.bountyWaiting() then log("gear: bounty showed up - doing it first") break end
 		local _, hrp = char()
 		if not hrp then task.wait(1) continue end
 		local best, bd
@@ -4050,6 +4057,7 @@ local function scheduler()
 				return
 			end
 			if sellTick() then return end
+			if M.bountyTick() then return end -- a bounty on this map comes before everything else
 			if M.on.unlock then
 				unlockAll()
 				local open, all = tpCount()
@@ -4076,7 +4084,6 @@ local function scheduler()
 				equipBestSkills()
 			end
 			if M.towerTripTick() then return end
-			if M.bountyTick() then return end
 			if M.prio.enabled then
 				if not M.prioTick() then
 					status("Priority list: nothing to do right now")
@@ -4314,7 +4321,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21t"
+M.VERSION = "v21u"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5738,7 +5745,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21t loaded")
+log("AUTO v21u loaded")
 
 end, debug.traceback)
 if not __ok then
