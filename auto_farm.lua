@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794980850
+--@@BUILD 1794981199
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1127,41 +1127,110 @@ local function equipBestGear()
 	local inv, eq = d.Data.Inventory, d.Data.Equipped
 	local changed = false
 	local G = (M.side and M.side.gear) or {}
-	-- weapon (main hand)
-	local cur = eq.Hands and eq.Hands[1]
-	local curScore = M.weaponScore(M.itemStats(cur, "Weapons"))
-	local bestKey, bestItem, bestScore
 	local myLevel = d.Data.Leveling.Level or 1
 	local function canWear(item) return ((item.Leveling and item.Leveling.Level) or 1) <= myLevel end
-	for key, item in pairs(inv.Weapons or {}) do
-		local sc = canWear(item) and M.weaponScore(M.itemStats(item, "Weapons")) or -1
-		if sc > curScore and (not bestScore or sc > bestScore) then bestKey, bestItem, bestScore = key, item, sc end
+	-- a Gear Goals pick only takes the slot over once you own a copy you can wear; until then the best gear is used
+	local function goalActive(id, cls)
+		local g = G[id]
+		if not (g and g.name) then return false end
+		for _, c in ipairs(M.gearCopies(cls, g.name)) do
+			if canWear(c.item) then return true end
+		end
+		return false
 	end
-	if bestItem and not (G.w1 and G.w1.name) then
-		d:FireServer("Equip", { SelectedItem = { "Weapons", bestKey, bestItem }, Hand = 1 })
-		log(("gear: weapon %s Lv%d (%.0f > %.0f)"):format(bestItem.Name, bestItem.Leveling.Level, bestScore, curScore))
-		changed = true
-		task.wait(1)
-	end
-	-- second hand: a second weapon of the same class = dual wield (more power)
-	do
+	local w1Goal, w2Goal, armorGoal = goalActive("w1", "Weapons"), goalActive("w2", "Weapons"), goalActive("armor", "Armor")
+	M._noDual = M._noDual or {}
+	local function wscore(it) return M.weaponScore(M.itemStats(it, "Weapons")) end
+	local function spaced() task.wait(math.max(0, (M._lastEquipAt or 0) + 2.5 - os.clock())) end
+	if not w1Goal and not w2Goal then
+		-- both hands together: two of the same type (dual wield) can beat one stronger weapon on its own
+		local byCls = {}
+		local function add(p)
+			local c = p.item.Class
+			if not c then return end
+			byCls[c] = byCls[c] or {}
+			table.insert(byCls[c], p)
+		end
+		for h = 1, 2 do
+			local it = eq.Hands and eq.Hands[h]
+			if type(it) == "table" then add({ item = it, hand = h, sc = wscore(it) }) end
+		end
+		for key, item in pairs(inv.Weapons or {}) do
+			if canWear(item) then add({ key = key, item = item, sc = wscore(item) }) end
+		end
+		local bestCls, bestTotal, bestList
+		for cls, list in pairs(byCls) do
+			table.sort(list, function(x, y) return x.sc > y.sc end)
+			local total = list[1].sc + ((not M._noDual[cls] and list[2]) and list[2].sc or 0)
+			if not bestTotal or total > bestTotal then bestCls, bestTotal, bestList = cls, total, list end
+		end
+		local h1, h2 = eq.Hands and eq.Hands[1], eq.Hands and eq.Hands[2]
+		local curTotal = (type(h1) == "table" and wscore(h1) or 0) + ((type(h1) == "table" and type(h2) == "table" and h2.Class == h1.Class) and wscore(h2) or 0)
+		if bestList and bestTotal > curTotal * 1.05 + 1 then
+			local want = { bestList[1], (not M._noDual[bestCls]) and bestList[2] or nil }
+			local sameCls = type(h1) == "table" and h1.Class == bestCls
+			log(("gear: %s x%d (%.0f > %.0f)"):format(bestCls, #want, bestTotal, curTotal))
+			if not sameCls then
+				-- new weapon type: main hand first (the second hand must match it)
+				local first = want[1].key and want[1] or want[2]
+				if first and first.key then
+					spaced()
+					d:FireServer("Equip", { SelectedItem = { "Weapons", first.key, first.item }, Hand = 1 })
+					M._lastEquipAt = os.clock()
+					changed = true
+					task.wait(1.5)
+					local other = first == want[1] and want[2] or want[1]
+					if other and other.key then
+						spaced()
+						d:FireServer("Equip", { SelectedItem = { "Weapons", other.key, other.item }, Hand = 2 })
+						M._lastEquipAt = os.clock()
+						task.wait(1.5)
+						local now = d.Data.Equipped.Hands[2]
+						if not (type(now) == "table" and now.Name == other.item.Name) then M._noDual[bestCls] = true end
+					end
+				end
+			else
+				-- same type: put each wanted bag weapon in a hand that holds something not wanted
+				local keep = {}
+				for _, w in ipairs(want) do if w.hand then keep[w.hand] = true end end
+				for _, w in ipairs(want) do
+					if w.key then
+						local hand = not keep[1] and 1 or not keep[2] and 2 or nil
+						if hand then
+							keep[hand] = true
+							spaced()
+							d:FireServer("Equip", { SelectedItem = { "Weapons", w.key, w.item }, Hand = hand })
+							M._lastEquipAt = os.clock()
+							changed = true
+							task.wait(1.5)
+							if hand == 2 then
+								local now = d.Data.Equipped.Hands[2]
+								if not (type(now) == "table" and now.Name == w.item.Name) then M._noDual[bestCls] = true end
+							end
+						end
+					end
+				end
+			end
+		end
+	elseif not w2Goal then
+		-- main hand is a Gear Goals pick: fill the second hand with the best weapon of the same type
 		local main = eq.Hands and eq.Hands[1]
 		local cls = type(main) == "table" and main.Class
-		M._noDual = M._noDual or {}
-		if cls and not M._noDual[cls] and not (G.w2 and G.w2.name) then
+		if cls and not M._noDual[cls] then
 			local off = eq.Hands[2]
-			local offOk = type(off) == "table" and off.Class == cls
-			local offScore = offOk and M.weaponScore(M.itemStats(off, "Weapons")) or -1
+			local offScore = (type(off) == "table" and off.Class == cls) and wscore(off) or -1
 			local k2, i2, s2
 			for key, item in pairs(inv.Weapons or {}) do
 				if item.Class == cls and canWear(item) then
-					local sc = M.weaponScore(M.itemStats(item, "Weapons"))
+					local sc = wscore(item)
 					if sc > offScore and (not s2 or sc > s2) then k2, i2, s2 = key, item, sc end
 				end
 			end
 			if i2 then
 				local name, lvl = i2.Name, i2.Leveling.Level
+				spaced()
 				d:FireServer("Equip", { SelectedItem = { "Weapons", k2, i2 }, Hand = 2 })
+				M._lastEquipAt = os.clock()
 				task.wait(1.2)
 				local now = eq.Hands[2]
 				if type(now) == "table" and now.Name == name then
@@ -1180,7 +1249,7 @@ local function equipBestGear()
 		local sc = canWear(item) and M.armorScore(M.itemStats(item, "Armor")) or -1
 		if sc > curA and (not bs or sc > bs) then bk, bi, bs = key, item, sc end
 	end
-	if bi and not (G.armor and G.armor.name) then
+	if bi and not armorGoal then
 		d:FireServer("Equip", { SelectedItem = { "Armor", bk, bi } })
 		log(("gear: armor %s (%.0f > %.0f)"):format(bi.Name, bs, curA))
 		changed = true
@@ -4356,7 +4425,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21y"
+M.VERSION = "v21z"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5784,7 +5853,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21y loaded")
+log("AUTO v21z loaded")
 
 end, debug.traceback)
 if not __ok then
