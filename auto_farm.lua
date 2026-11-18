@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794993080
+--@@BUILD 1794993555
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22u"
+M.VERSION = "v22w"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6577,7 +6577,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22u loaded")
+log("AUTO v22w loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6589,10 +6589,91 @@ do
 		pcall(saveState)
 	end
 end
+-- heartbeat: a small file per account, rewritten every minute while the game runs.
+-- When a game window crashes it stops changing - the scheduled check on the PC sees that and tells you.
+task.spawn(function()
+	while M.alive do
+		pcall(function()
+			writefile("auto_farm_alive_" .. lp.Name .. ".txt", ("%d %s %s"):format(os.time(), M.VERSION, tostring(game.PlaceId)))
+		end)
+		task.wait(60)
+	end
+end)
 M.teleportsLastHour = function()
 	local n = 0
 	for _, t in ipairs(M.side.tpTimes or {}) do if os.time() - t <= 3600 then n += 1 end end
 	return n
+end
+
+----------------------------------------------------------------------
+-- Discord alerts: the webhook address is kept in auto_farm_webhook.txt (executor workspace), never in the script.
+-- Every account writes a heartbeat; the others post to Discord when one has gone quiet (crashed / closed).
+----------------------------------------------------------------------
+M.webhookUrl = function()
+	local ok, u = pcall(function() return isfile("auto_farm_webhook.txt") and readfile("auto_farm_webhook.txt") end)
+	u = ok and type(u) == "string" and u:gsub("%s", "") or ""
+	return u ~= "" and u or nil
+end
+M.discord = function(text)
+	local url = M.webhookUrl()
+	if not url then return false end
+	local req = (syn and syn.request) or http_request or request or (fluxus and fluxus.request)
+	if not req then return false end
+	local ok = pcall(function()
+		req({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = Http:JSONEncode({ content = text, username = "MOI HUB" }) })
+	end)
+	return ok
+end
+M._hbStarted = M._hbStarted or false
+if not getgenv().__AutoHeartbeat then
+	getgenv().__AutoHeartbeat = true
+	task.spawn(function()
+		local function readJ(fn)
+			local ok, t = pcall(function() return Http:JSONDecode(readfile(fn)) end)
+			return ok and type(t) == "table" and t or {}
+		end
+		while true do
+			pcall(function()
+				-- my heartbeat
+				local acc = readJ("auto_farm_accounts.json")
+				acc[tostring(lp.UserId)] = lp.Name
+				writefile("auto_farm_accounts.json", Http:JSONEncode(acc))
+				writefile("auto_farm_hb_" .. lp.UserId .. ".txt", tostring(os.time()))
+				-- the others: quiet for 5 min = gone (a teleport takes well under a minute)
+				local al = readJ("auto_farm_alerts.json")
+				local changed = false
+				for uid, name in pairs(acc) do
+					if uid ~= tostring(lp.UserId) then
+						local ok, t = pcall(function() return tonumber(readfile("auto_farm_hb_" .. uid .. ".txt")) end)
+						t = ok and t or 0
+						local quiet = os.time() - t
+						if quiet > 300 and quiet < 86400 and not al[uid] then
+							al[uid] = os.time()
+							changed = true
+							M.discord(("⚠️ **%s** หลุดจากเกม (เงียบไป %d นาที) - %s"):format(name, math.floor(quiet / 60), os.date("%H:%M")))
+						elseif quiet <= 120 and al[uid] then
+							al[uid] = nil
+							changed = true
+							M.discord(("✅ **%s** กลับเข้าเกมแล้ว - %s"):format(name, os.date("%H:%M")))
+						end
+					end
+				end
+				if changed then writefile("auto_farm_alerts.json", Http:JSONEncode(al)) end
+			end)
+			task.wait(60)
+		end
+	end)
+	-- kicked / disconnected while the game is still open: say so right away
+	pcall(function()
+		game:GetService("GuiService").ErrorMessageChanged:Connect(function(msg)
+			if not msg or msg == "" or tostring(msg):find("ClientInitiated") then return end
+			task.wait(15)
+			local still = ""
+			pcall(function() still = game:GetService("GuiService"):GetErrorMessage() end)
+			if still == "" or tostring(still):find("ClientInitiated") then return end
+			M.discord(("⚠️ **%s** ถูกตัดการเชื่อมต่อ: %s - %s (กำลังพยายามเข้าใหม่)"):format(lp.Name, tostring(still):sub(1, 120), os.date("%H:%M")))
+		end)
+	end)
 end
 
 end, debug.traceback)
