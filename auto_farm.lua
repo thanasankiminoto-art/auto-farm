@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794982153
+--@@BUILD 1794983600
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2171,6 +2171,10 @@ M.RARITY_RANK = { Common = 1, Uncommon = 2, Rare = 3, ["Super Rare"] = 4, Legend
 M.keepItem = function(item, cls)
 	if type(item) ~= "table" then return true end
 	if item.Favorite then return true end
+	if M.opt.mkSell and (cls == "Weapons" or cls == "Armor") then -- these rarities go to the market, not the shop
+		local def = ((gameInfo() or {})[cls] or {})[item.Name]
+		if def and (M.opt.mkRarities or {})[def.Rarity] then return true end
+	end
 	local G = (M.side and M.side.gear) or {}
 	for _, sl in pairs(G) do if type(sl) == "table" and sl.name == item.Name then return true end end
 	if (M.opt.keepNames or {})[item.Name] then return true end
@@ -2695,6 +2699,7 @@ M.homeTarget = function()
 	return n
 end
 M.goHome = function()
+	if os.time() < (M.side.pauseUntil or 0) then return end -- paused: stay where you are
 	local n = M.homeTarget()
 	if n <= 0 or M.sellTrip or inDungeon() then return end
 	if M.side.towerTrip and os.time() - M.side.towerTrip < 300 then return end
@@ -3227,6 +3232,7 @@ end
 -- quests, dungeons and the floor boss belong to the home map: after a trip elsewhere
 -- (gear farming on a lower map, say) go back home before doing them
 M.backHome = function()
+	if os.time() < (M.side.pauseUntil or 0) then return false end
 	local n = M.homeTarget()
 	if n <= 0 or M.sellTrip or inDungeon() then return false end
 	local cur = currentFloor()
@@ -4063,6 +4069,234 @@ M.eggTick = function()
 	pcall(M.goHome)
 	return true
 end
+----------------------------------------------------------------------
+-- Global Market (Sunshine Town): buy Gear Goals picks, list chosen rarities for sale.
+-- Coins only. The market's events answer in Sunshine Town.
+----------------------------------------------------------------------
+M.MK_RARITIES = { "Common", "Uncommon", "Rare", "Super Rare", "Legendary" }
+M.mkEv = function(name)
+	local pe = RS:FindFirstChild("PlayerEvents")
+	local g = pe and pe:FindFirstChild("GlobalMarketEvents")
+	return g and g:FindFirstChild(name)
+end
+M.mkInvoke = function(name, ...)
+	local ev = M.mkEv(name)
+	if not ev then return nil end
+	local args = table.pack(...)
+	local res, done = nil, false
+	task.spawn(function()
+		local ok, a, b = pcall(function() return ev:InvokeServer(table.unpack(args, 1, args.n)) end)
+		res = ok and table.pack(a, b) or false
+		done = true
+	end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < 12 do task.wait(0.2) end
+	if not done or not res then return nil end
+	return res[1], res[2]
+end
+-- every listing of an item (a few pages), cheapest first
+M.mkSearch = function(name)
+	local out, seen = {}, {}
+	for page = 1, 3 do
+		local list = M.mkInvoke("RequestGlobalMarketData", name, page, nil)
+		if type(list) ~= "table" or #list == 0 then break end
+		local new = 0
+		for _, x in ipairs(list) do
+			local v = x.value
+			if v and v.Item and v.Item.Name == name and not seen[x.key] then
+				seen[x.key] = true
+				new += 1
+				out[#out + 1] = { key = x.key, price = tonumber(v.CoinsPrice) or math.huge, item = v.Item, seller = v.Seller }
+			end
+		end
+		if new == 0 then break end
+		task.wait(0.5)
+	end
+	table.sort(out, function(a, b) return a.price < b.price end)
+	return out
+end
+-- average sale price (the game's own sales history); companions are asked for as "Name_Base"
+M.mkAvg = function(name, cls)
+	M._mkAvg = M._mkAvg or {}
+	local c = M._mkAvg[name]
+	if c and os.clock() - c.t < 1800 then return c.v end
+	local q = (cls == "Companions" or cls == "Mounts") and (name .. "_Base") or name
+	local ok, res
+	for _ = 1, 3 do
+		ok, res = M.mkInvoke("RequestItemSaleData", q)
+		if ok or res ~= "PlayerCooldown" then break end
+		task.wait(2)
+	end
+	local v = ok and type(res) == "table" and res.SalesData and tonumber(res.SalesData.TotalAverage) or nil
+	M._mkAvg[name] = { v = v, t = os.clock() }
+	task.wait(1.2)
+	return v
+end
+M.mkUntradeable = function(name)
+	local ok, list = pcall(function() return require(RS.Modules.Untradeable) end)
+	return ok and type(list) == "table" and table.find(list, name) ~= nil
+end
+-- what the market should buy now: Gear Goals slots set to "buy" / "both" that still miss their item
+M.mkBuyWants = function()
+	local G = M.gearCfg()
+	local out = {}
+	for _, sl in ipairs(M.GEAR_SLOTS) do
+		local cfg = G[sl.id]
+		if cfg and cfg.name and (cfg.get == "buy" or cfg.get == "both") then
+			local need = 1
+			if sl.id == "w2" and G.w1 and G.w1.name == cfg.name then need = 2 end -- the same weapon in both hands
+			if sl.id == "w1" and G.w2 and G.w2.name == cfg.name then need = 0 end -- w2 buys both copies
+			if need > 0 and #M.gearCopies(sl.cls, cfg.name) < need then
+				out[#out + 1] = { slot = sl, name = cfg.name, max = tonumber(cfg.maxPrice) or 0 }
+			end
+		end
+	end
+	return out
+end
+-- bag items of the picked rarities that are worse than what you wear, not locked, not a Gear Goals pick
+M.mkSellList = function(fresh)
+	if not fresh and M._mkSL and os.clock() - M._mkSLt < 10 then return M._mkSL end
+	local r = M.mkSellListNow()
+	M._mkSL, M._mkSLt = r, os.clock()
+	return r
+end
+M.mkSellListNow = function()
+	local d = data()
+	if not d or not M.opt.mkSell then return {} end
+	local inv, eq = d.Data.Inventory, d.Data.Equipped
+	local info = gameInfo() or {}
+	local G = M.gearCfg()
+	local rar = M.opt.mkRarities or {}
+	local out = {}
+	local function picked(name) for _, s in pairs(G) do if type(s) == "table" and s.name == name then return true end end end
+	local wScore = M.weaponScore(M.itemStats(eq.Hands and eq.Hands[1], "Weapons"))
+	local aScore = M.armorScore(M.itemStats(eq.Armor, "Armor"))
+	for _, cls in ipairs({ "Weapons", "Armor" }) do
+		for key, item in pairs(inv[cls] or {}) do
+			local def = (info[cls] or {})[item.Name]
+			if type(item) == "table" and def and rar[def.Rarity] and not item.Favorite and not item.Spawned and not picked(item.Name)
+				and not (M.opt.keepNames or {})[item.Name] and not M.mkUntradeable(item.Name)
+				and not M.sameItem(item, eq.Hands and eq.Hands[1]) and not M.sameItem(item, eq.Hands and eq.Hands[2]) and not M.sameItem(item, eq.Armor) then
+				local sc = cls == "Weapons" and M.weaponScore(M.itemStats(item, "Weapons")) or M.armorScore(M.itemStats(item, "Armor"))
+				local cur = cls == "Weapons" and wScore or aScore
+				if sc < cur then out[#out + 1] = { cls = cls, key = key, item = item, rarity = def.Rarity } end
+			end
+		end
+	end
+	return out
+end
+M.mkPriceFor = function(x)
+	local own = (M.opt.mkPrice or {})[x.item.Name]
+	if tonumber(own) and tonumber(own) > 0 then return math.floor(tonumber(own)), "your price" end
+	local p, why
+	if (M.opt.mkMode or "market") == "market" then
+		local avg = M.mkAvg(x.item.Name, x.cls)
+		if avg and avg > 0 then
+			p = avg * (1 + (tonumber(M.opt.mkPct) or -10) / 100)
+			why = ("market %d %+d%%"):format(avg, tonumber(M.opt.mkPct) or -10)
+		end
+	end
+	if not p then
+		p = tonumber((M.opt.mkFixed or {})[x.rarity]) or ({ Common = 200, Uncommon = 500, Rare = 2000, ["Super Rare"] = 10000, Legendary = 50000 })[x.rarity] or 1000
+		why = "fixed for " .. x.rarity
+	end
+	p = math.max(p, tonumber(M.opt.mkMin) or 10)
+	return math.clamp(math.floor(p), 10, 100000000), why
+end
+-- in Sunshine Town: buy what is wanted, then fill the free listing slots
+M.mkTick = function()
+	if inDungeon() or currentFloor() ~= 1 then return false end
+	if os.clock() < (M._mkNext or 0) then return false end
+	M._mkNext = os.clock() + 120
+	local d = data()
+	if not d then return false end
+	local did = false
+	local keep = tonumber(M.opt.eggKeep) or 30000
+	local myLevel = d.Data.Leveling.Level or 1
+	local me = lp.UserId
+	for _, w in ipairs(M.mkBuyWants()) do
+		status("Market: looking for " .. w.name)
+		local best
+		for _, l in ipairs(M.mkSearch(w.name)) do
+			local lvl = l.item.Leveling and l.item.Leveling.Level or 1
+			if l.seller ~= me and lvl <= myLevel and (w.max <= 0 or l.price <= w.max) then best = l break end
+		end
+		local coins = d.Data.Currencies.Coins or 0
+		if not best then
+			M.mkState = ("%s: nothing on the market under your price"):format(w.name)
+		elseif coins - best.price < keep then
+			M.mkState = ("%s: cheapest %d, waiting for coins (keeps %d)"):format(w.name, best.price, keep)
+		else
+			local ok, why = M.mkInvoke("PurchaseListing", best.key)
+			if ok then
+				log(("market: bought %s for %d coins"):format(w.name, best.price))
+				M.mkState = ("%s: bought for %d"):format(w.name, best.price)
+				did = true
+				task.wait(1.5)
+				M._nextGearGoal = 0
+				pcall(M.gearTick, true)
+			else
+				log(("market: could not buy %s (%s)"):format(w.name, tostring(why)))
+			end
+		end
+		task.wait(1)
+	end
+	if M.opt.mkSell then
+		local mine = d.Data.GlobalMarket and d.Data.GlobalMarket.Listings or {}
+		local free = 3 - #mine
+		M.side.mkListed, M.side.mkCheckedAt = #mine, os.time()
+		local soonest
+		for _, l in ipairs(mine) do if l.FinishedAt and (not soonest or l.FinishedAt < soonest) then soonest = l.FinishedAt end end
+		M.side.mkNextFree = soonest
+		local tries = 0
+		while free > 0 and tries < 6 do
+			tries += 1
+			-- read the bag again every time: keys move once an item has left it
+			local x = M.mkSellList(true)[1]
+			if not x then break end
+			local price, why = M.mkPriceFor(x)
+			local name = x.item.Name
+			x = M.mkSellList(true)[1] -- the price lookup waits; take the entry as it is now
+			if not x then break end
+			if x.item.Name ~= name then continue end
+			local ok = M.mkInvoke("SellItem", { x.cls, x.key, x.item }, price)
+			if ok then
+				free -= 1
+				did = true
+				log(("market: listed %s for %d (%s)"):format(x.item.Name, price, why))
+				task.wait(1.5)
+			else
+				log(("market: could not list %s"):format(x.item.Name))
+				break
+			end
+		end
+	end
+	if M.side.mkTrip then
+		-- came here only for the market: done, go home (no town boss / dungeon on the way)
+		M.side.mkTrip, M.side.scanTrip = nil, nil
+		saveState()
+		return true
+	end
+	saveState()
+	return did
+end
+-- go to Sunshine Town when the market has something to do (at most once an hour, one trip at a time)
+M.mkTripTick = function()
+	if inDungeon() or M.sellTrip or currentFloor() == 1 then return false end
+	local sd = M.side
+	if M.onTrip() or sd.questTrip or os.time() < (sd.mkTripNext or 0) then return false end
+	if M.dailyNext and M.dailyNext() then return false end
+	local why
+	if #M.mkBuyWants() > 0 then why = "buy for Gear Goals" end
+	if not why and M.opt.mkSell and #M.mkSellList() > 0 and ((sd.mkListed or 0) < 3 or (sd.mkNextFree and os.time() >= sd.mkNextFree)) then why = "list items for sale" end
+	if not why then return false end
+	sd.mkTripNext = os.time() + 3600
+	sd.scanTrip = os.time() -- the trip guards (home / next map) wait while it's in town
+	sd.mkTrip = os.time()
+	saveState()
+	if M.travelTo(1, "market: " .. why) then task.wait(20) return true end
+	return false
+end
 -- visit every map you can enter once, just to read its monsters' drops, then go home
 M.scanStart = function(onlyMissing)
 	local left = {}
@@ -4260,6 +4494,12 @@ local function scheduler()
 				task.wait(2)
 				return
 			end
+			if os.time() < (M.side.pauseUntil or 0) then
+				status(("Paused for %d s"):format(M.side.pauseUntil - os.time()))
+				release()
+				task.wait(2)
+				return
+			end
 			if inDungeon() then
 				runDungeon()
 				if not M.cycle.enabled then
@@ -4270,6 +4510,8 @@ local function scheduler()
 			if sellTick() then return end
 			if M.bountyTick() then return end -- a bounty on this map comes before everything else
 			if M.eggTick() then return end
+			if M.mkTick() then pcall(M.goHome) return end
+			if M.mkTripTick() then return end
 			if M.on.unlock then
 				unlockAll()
 				local open, all = tpCount()
@@ -4533,7 +4775,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22a"
+M.VERSION = "v22e"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4843,6 +5085,7 @@ navItem("boss", "Farming", "Bosses", "Boss Farm")
 navItem("progress", "Farming", "Progression", "Next Floor")
 navItem("character", "Farming", "Character", "Stats & Gear")
 navItem("gear", "Farming", "Gear Goals", "Pick + Upgrade")
+navItem("market", "Farming", "Market", "Buy & Sell")
 navGroup("Other")
 navItem("teleport", "Other", "Teleport", "Maps")
 navItem("settings", "Other", "Settings", "Window")
@@ -5384,6 +5627,85 @@ do
 		local function mark(ok) return ok and '<font color="#6ED876">done</font>' or '<font color="#D65656">not yet</font>' end
 		return ("Now: floor %s\nNext: floor %s - %s\n\nBeat %s: %s\nLevel %s (you %s): %s"):format(hl(f.cur), hl(f.nextN), hl(f.nextName), hl(f.boss or "boss"), mark(okB), hl(f.needLevel), hl(f.level), mark(okL))
 	end, 100)
+end
+
+-- MARKET
+do
+	local L, R = newPage("market")
+	local function numRow(body, label, get, set)
+		local row = mk("Frame", { Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, LayoutOrder = nextOrder() }, body)
+		mk("TextLabel", { Size = UDim2.new(1, -110, 1, 0), BackgroundTransparency = 1, Text = label, TextColor3 = C.text, Font = F, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, row)
+		local box = mk("TextBox", { Size = UDim2.new(0, 100, 0, 26), Position = UDim2.new(1, -100, 0.5, -13), BackgroundColor3 = C.field, Text = "", PlaceholderText = "0", TextColor3 = C.accent, Font = FB, TextSize = 13, ClearTextOnFocus = false }, row)
+		corner(box, 6)
+		local function paint() if not box:IsFocused() then box.Text = tostring(get() or 0) end end
+		paint()
+		paints[#paints + 1] = paint
+		table.insert(conns, box.FocusLost:Connect(function()
+			local v = tonumber((box.Text:gsub(",", ""))) or 0
+			set(math.max(0, math.floor(v)))
+			save()
+			paint()
+		end))
+		return row
+	end
+	local b = card(L, "Buy For Gear Goals", "B")
+	textRow(b, "For each Gear Goals pick: farm it, buy it on the market (Sunshine Town), or both (farm, and buy as soon as it is on sale under your price). Max price 0 = no limit: the cheapest one you can wear is bought. Coins only, and the Coins you keep (below) are never spent.")
+	for _, sl in ipairs(M.GEAR_SLOTS) do
+		textRow(b, function()
+			local cfg = M.gearCfg()[sl.id]
+			return ("%s: %s"):format(sl.title, hl(cfg and cfg.name or "nothing picked"))
+		end)
+		dropdownRow(b, "How to get it", function() return { { "farm", "Farm until it drops" }, { "buy", "Buy on the market" }, { "both", "Farm, and buy if it's on sale" } } end,
+			function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.get or "farm" end,
+			function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].get = v end)
+		numRow(b, "Max price (0 = no limit)", function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.maxPrice or 0 end,
+			function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].maxPrice = v end)
+	end
+	sliderRow(b, "Keep at least this many Coins (market + eggs)", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
+	textRow(b, function() return M.mkState or "Market: nothing bought yet" end)
+
+	local s = card(R, "Sell On The Market", "S")
+	optToggle(s, "List items on the market (instead of selling them to the shop)", "mkSell")
+	M.opt.mkRarities = M.opt.mkRarities or { ["Super Rare"] = true }
+	dropdownRow(s, "Rarities to list", function()
+		local o = {}
+		for _, r in ipairs(M.MK_RARITIES) do o[#o + 1] = { r, r } end
+		return o
+	end, function() return M.opt.mkRarities end, function(v) M.opt.mkRarities[v] = not M.opt.mkRarities[v] or nil end, true)
+	dropdownRow(s, "Price", function() return { { "market", "Market average +/- %" }, { "fixed", "Fixed price per rarity" } } end,
+		function() return M.opt.mkMode or "market" end, function(v) M.opt.mkMode = v end)
+	sliderRow(s, "Market average +/- %", -50, 100, 5, function() return tonumber(M.opt.mkPct) or -10 end, function(v) M.opt.mkPct = v end, "%+d%%")
+	numRow(s, "Never list below", function() return tonumber(M.opt.mkMin) or 10 end, function(v) M.opt.mkMin = v end)
+	M.opt.mkFixed = M.opt.mkFixed or {}
+	for _, r in ipairs(M.MK_RARITIES) do
+		numRow(s, "Fixed / no sales history: " .. r, function() return M.opt.mkFixed[r] or ({ Common = 200, Uncommon = 500, Rare = 2000, ["Super Rare"] = 10000, Legendary = 50000 })[r] end,
+			function(v) M.opt.mkFixed[r] = v end)
+	end
+	textRow(s, function()
+		local sd = M.side
+		local t = ("Your listings: %s / 3%s"):format(hl(sd.mkListed or "?"), sd.mkNextFree and sd.mkNextFree > os.time() and ("  -  a slot frees in %d min"):format(math.ceil((sd.mkNextFree - os.time()) / 60)) or "")
+		local n = #M.mkSellList()
+		return t .. ("\nReady to list: %s item(s)"):format(hl(n))
+	end, 34)
+	textRow(s, "Up to 3 listings at a time. A free slot is filled when you are in Sunshine Town (selling trips go there; with something to do the script goes there by itself at most once an hour). Locked items, Gear Goals picks, untradeable items and anything at least as good as what you wear are never listed.")
+
+	local p = card(R, "Your Own Price Per Item", "P")
+	textRow(p, "A price set here beats the market % and the fixed price. 0 = use the rules above. Same name = same price.")
+	local holder = mk("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = nextOrder() }, p)
+	list(holder, 2)
+	local function rebuild()
+		for _, c in ipairs(holder:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+		M.opt.mkPrice = M.opt.mkPrice or {}
+		local names, seen = {}, {}
+		for _, x in ipairs(M.mkSellList()) do if not seen[x.item.Name] then seen[x.item.Name] = true names[#names + 1] = x.item.Name end end
+		for nm in pairs(M.opt.mkPrice) do if not seen[nm] then seen[nm] = true names[#names + 1] = nm end end
+		table.sort(names)
+		for _, nm in ipairs(names) do
+			numRow(holder, nm, function() return M.opt.mkPrice[nm] or 0 end, function(v) M.opt.mkPrice[nm] = v > 0 and v or nil end)
+		end
+	end
+	buttonRow(p, "Refresh the item list", nil, rebuild)
+	task.defer(function() pcall(rebuild) end)
 end
 
 -- CHARACTER
@@ -5965,7 +6287,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22a loaded")
+log("AUTO v22e loaded")
 
 end, debug.traceback)
 if not __ok then
