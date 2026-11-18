@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795008831
+--@@BUILD 1795009836
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -987,8 +987,28 @@ local function doFind(q, index)
 	local obj = FindObjects and FindObjects:FindFirstChild(q.ObjectToFind or "")
 	local part = obj and obj:FindFirstChild("MainPart")
 	if not part then
-		log("can't locate item " .. tostring(q.ObjectToFind))
-		return false
+		-- v23e: the item is not placed on this map (e.g. Vampire Insignia in Silent Snowfields).
+		-- The game itself only checks "ProgressQuest" from the client, so try it once without the item.
+		local names = {}
+		for _, c in ipairs(FindObjects and FindObjects:GetChildren() or {}) do names[#names + 1] = c.Name end
+		log(("can't locate item %s (this map has: %s) - trying to hand it in directly"):format(tostring(q.ObjectToFind), #names > 0 and table.concat(names, ", ") or "nothing"))
+		local d = data()
+		local before = q.Progress
+		if d then pcall(function() d:FireServer("ProgressQuest", { QuestIndex = index }) end) end
+		task.wait(2)
+		local qq = d and d.Data.Quests.QuestsInProgress[index]
+		local moved = not qq or qq.ID ~= q.ID or (qq.Progress or 0) ~= (before or 0) or (qq.Completed == true)
+		if moved then
+			log(("found %s by handing it in directly"):format(tostring(q.ObjectToFind)))
+		else
+			log(("%s: the game did not accept it without the item - not coming back for it for 12 h"):format(tostring(q.ObjectToFind)))
+			M.side.oldSkip = M.side.oldSkip or {}
+			M.side.oldSkip[q.ID] = os.time() + 12 * 3600
+			M.gaveUp = M.gaveUp or {}
+			M.gaveUp[q.ID] = os.time()
+			pcall(M.saveState)
+		end
+		return moved
 	end
 	status("Finding " .. q.ObjectToFind)
 	if not fly(part.Position + Vector3.new(0, 3, 0), 6, 75) then return false end
@@ -5073,7 +5093,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23d"
+M.VERSION = "v23e"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6685,7 +6705,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v23b loaded")
+log("AUTO " .. M.VERSION .. " loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
