@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794995078
+--@@BUILD 1795008519
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -610,7 +610,7 @@ M.crowdSpot = function(mob, p, sign, R)
 			if ep and (ep - p).Magnitude < 90 then others[#others + 1] = ep end
 		end
 	end
-	if #others < 2 then crowdOffset = nil return nil end
+	if #others < 1 then crowdOffset = nil return nil end -- v23c: also 2 bosses together (floor 387 death)
 	local zs = liveZones()
 	local function score(pos)
 		for _, z in ipairs(zs) do
@@ -689,7 +689,45 @@ local function kill(mob, single)
 			end
 			return false
 		end
-		if (M._dungeonRunning or single) and hum.Health / hum.MaxHealth < 0.35 then
+		if M._dungeonRunning and hum.Health / hum.MaxHealth < (M.opt.fleeAt or 30) / 100 and os.clock() - (M._lastFlee or 0) > 20 then
+			-- v23c: dying ends the whole Tower run (hours of floors); letting the boss heal is far cheaper.
+			-- back away from EVERY enemy (not just deeper under the target), outside red areas, until HP is back
+			M._lastFlee = os.clock()
+			local hp0 = hum.Health
+			log(("low HP vs %s (%d%%) - backing away from every enemy to recover"):format(mob.Name, math.floor(hum.Health / hum.MaxHealth * 100)))
+			status("Low HP - backing away from " .. mob.Name)
+			local tF, gotBack = os.clock(), false
+			while M.running and os.clock() - tF < 15 do
+				local hm, hr = char()
+				if not hr or not hm or hm.Health <= 0 then break end
+				if hm.Health / hm.MaxHealth >= 0.6 then gotBack = true break end
+				if os.clock() - tF > 6 and hm.Health <= hp0 then break end -- not healing out here either: go back and fight
+				local c, n = Vector3.zero, 0
+				for _, e in ipairs(workspace.SpawnedEntities:GetChildren()) do
+					local eh = e:FindFirstChildOfClass("Humanoid")
+					local ep = eh and eh.Health > 0 and mobPos(e)
+					if ep then c += ep n += 1 end
+				end
+				local mid = n > 0 and c / n or hr.Position
+				local away = hr.Position - mid
+				away = Vector3.new(away.X, 0, away.Z)
+				if away.Magnitude < 1 then away = Vector3.new(1, 0, 0) end
+				local spot = safePos(mid + away.Unit * 80 + Vector3.new(0, sign * 25, 0))
+				setTarget(spot, 160, mid)
+				if (hr.Position - spot).Magnitude > 60 then
+					pcall(function() hr.CFrame = CFrame.new(spot) * (hr.CFrame - hr.CFrame.Position) end)
+				end
+				castSkills(hm.Health / hm.MaxHealth)
+				task.wait(0.3)
+			end
+			local hmA = char()
+			if hmA and hmA.Health > 0 then
+				log(("recover vs %s: HP %d%% -> %d%% (%s)"):format(mob.Name, math.floor(hp0 / hmA.MaxHealth * 100), math.floor(hmA.Health / hmA.MaxHealth * 100), gotBack and "back to fight" or "no regen, fighting on"))
+				myLast, mobLast, nextCheck = hmA.Health, h.Health, os.clock() + 2
+			end
+			lastProgress, lastHP = os.clock(), h.Health -- don't count the break as "no damage"
+			dist = 25
+		elseif (M._dungeonRunning or single) and hum.Health / hum.MaxHealth < 0.35 then
 			-- dungeon / tower / mini-boss quest: never leave the enemy (it heals 10% per second when we go far).
 			-- back off to the edge of our reach and keep hitting + dodging; Heal skill does the rest
 			if dist < MAX_DIST then
@@ -708,6 +746,20 @@ local function kill(mob, single)
 			end
 			recover()
 			myLast, mobLast, nextCheck = hum.Health, h.Health, os.clock() + 2
+		end
+		if os.clock() >= nextCheck and M._dungeonRunning and h.MaxHealth >= 20000 and appendfile then
+			pcall(function()
+				local fn = "auto_farm_hplog_" .. lp.UserId .. ".csv"
+				if not isfile(fn) then writefile(fn, "time,floor,target,target_hp,my_hp,my_max,dist,enemies_near,last_attack_by\n") end
+				local near = 0
+				for _, e in ipairs(workspace.SpawnedEntities:GetChildren()) do
+					local eh = e:FindFirstChildOfClass("Humanoid")
+					local ep = eh and eh.Health > 0 and mobPos(e)
+					if ep and (ep - p).Magnitude < 90 then near += 1 end
+				end
+				local la = M._lastAtk and os.clock() - M._lastAtk.t < 3 and M._lastAtk.who or ""
+				appendfile(fn, ("%s,%s,%s,%d,%d,%d,%d,%d,%s\n"):format(os.date("%Y-%m-%d %H:%M:%S"), tostring(M._tStat and M._tStat.floor or ""), mob.Name, h.Health, hum.Health, hum.MaxHealth, dist, near, la))
+			end)
 		end
 		if os.clock() >= nextCheck then
 			local took = hum.Health < myLast - 1
@@ -5021,7 +5073,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23b"
+M.VERSION = "v23c"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
