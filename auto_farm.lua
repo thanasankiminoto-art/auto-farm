@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794993555
+--@@BUILD 1794993781
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22w"
+M.VERSION = "v22x"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6577,7 +6577,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22w loaded")
+log("AUTO v22x loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6624,6 +6624,80 @@ M.discord = function(text)
 	end)
 	return ok
 end
+-- a live status card in Discord: one message per account, edited every 2 minutes
+M.statusCard = function()
+	local d = data()
+	if not d then return nil end
+	local lv = d.Data.Leveling
+	local eq = d.Data.Equipped
+	local info = gameInfo() or {}
+	local function it(x)
+		if type(x) ~= "table" then return "-" end
+		local l = x.Leveling and x.Leveling.Level
+		local v = x.Variant and x.Variant ~= "Base" and (" " .. x.Variant) or ""
+		return ("%s%s%s"):format(x.Name, v, l and (" Lv" .. l) or "")
+	end
+	local fl = currentFloor()
+	local fname = "?"
+	for _, f in ipairs(M.floorList()) do if f.n == fl then fname = f.name end end
+	local place = inDungeon() and ((info._GameData and (type(info._GameData.IsDungeon) == "table" and info._GameData.IsDungeon.Name)) or "instance") or fname
+	local tw = ""
+	for _, r in pairs(RC._replicas) do
+		if r.Class == "InstanceData" and r.Data and r.Data.Floor and r.Data.Floor.Current then tw = (" - Tower floor %s"):format(tostring(r.Data.Floor.Current)) end
+	end
+	local G = M.gearCfg()
+	local goals = {}
+	for _, sl in ipairs(M.GEAR_SLOTS) do
+		local cfg = G[sl.id]
+		if cfg and cfg.name then
+			goals[#goals + 1] = ("%s: %s - %s"):format(sl.title:gsub(" %(.-%)", ""), cfg.name, tostring((M.gearState or {})[sl.id] or "-"))
+		end
+	end
+	local mode = M.getMode and M.getMode() or "?"
+	local pct = (lv.ExperienceCap or 0) > 0 and math.floor((lv.Experience or 0) / lv.ExperienceCap * 100) or 0
+	local fields = {
+		{ name = "Level", value = ("**%s** (%d%%)"):format(tostring(lv.Level), pct), inline = true },
+		{ name = "Coins", value = tostring(d.Data.Currencies.Coins or 0), inline = true },
+		{ name = "Power", value = tostring(math.floor(M.powerScore and M.powerScore() or 0)), inline = true },
+		{ name = "Where", value = tostring(place) .. tw, inline = true },
+		{ name = "Mode", value = tostring(mode), inline = true },
+		{ name = "Teleports / h", value = tostring(M.teleportsLastHour and M.teleportsLastHour() or "?"), inline = true },
+		{ name = "Hands", value = it(eq.Hands and eq.Hands[1]) .. "\n" .. it(eq.Hands and eq.Hands[2]), inline = true },
+		{ name = "Armor", value = it(eq.Armor), inline = true },
+		{ name = "Pet / Mount", value = it(eq.Companion) .. "\n" .. it(eq.Mount), inline = true },
+		{ name = "Gear Goals", value = #goals > 0 and table.concat(goals, "\n"):sub(1, 1000) or "-", inline = false },
+		{ name = "Now", value = tostring(statusLabel and statusLabel.Text or "-"):gsub("<[^>]+>", ""):sub(1, 200), inline = false },
+	}
+	return {
+		username = "MOI HUB",
+		embeds = { {
+			title = lp.Name .. " - " .. M.VERSION,
+			color = 0x6ED876,
+			fields = fields,
+			footer = { text = "updated " .. os.date("%H:%M:%S") .. " (every 2 min)" },
+		} },
+	}
+end
+M.discordStatus = function()
+	local url = M.webhookUrl()
+	local req = (syn and syn.request) or http_request or request or (fluxus and fluxus.request)
+	if not url or not req or M.opt.discordCard == false then return end
+	local card = M.statusCard()
+	if not card then return end
+	local idFile = "auto_farm_discord_msg_" .. lp.UserId .. ".txt"
+	local id = isfile(idFile) and readfile(idFile):gsub("%s", "") or ""
+	local body = Http:JSONEncode(card)
+	if id ~= "" then
+		local ok, r = pcall(function() return req({ Url = url .. "/messages/" .. id, Method = "PATCH", Headers = { ["Content-Type"] = "application/json" }, Body = body }) end)
+		if ok and r and (r.StatusCode == 200 or r.StatusCode == 204) then return end
+		if ok and r and r.StatusCode == 429 then return end -- rate limited: next time
+	end
+	local ok, r = pcall(function() return req({ Url = url .. "?wait=true", Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body }) end)
+	if ok and r and r.Body then
+		local ok2, j = pcall(function() return Http:JSONDecode(r.Body) end)
+		if ok2 and j and j.id then pcall(writefile, idFile, tostring(j.id)) end
+	end
+end
 M._hbStarted = M._hbStarted or false
 if not getgenv().__AutoHeartbeat then
 	getgenv().__AutoHeartbeat = true
@@ -6660,6 +6734,11 @@ if not getgenv().__AutoHeartbeat then
 				end
 				if changed then writefile("auto_farm_alerts.json", Http:JSONEncode(al)) end
 			end)
+			M._cardN = ((M._cardN or 0) + 1) % 2
+			if M._cardN == 0 then
+				local Mnow = getgenv().__AutoAll or M -- the newest copy of the script (after a reload)
+				pcall(Mnow.discordStatus)
+			end
 			task.wait(60)
 		end
 	end)
