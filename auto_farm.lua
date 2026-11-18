@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794992818
+--@@BUILD 1794993080
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1988,6 +1988,33 @@ local function runDungeon()
 			local ftype = fl and tostring(fl.Type) or ""
 			if tower and fl then
 				local key = ftype .. tostring(fl.Current)
+				-- detailed Tower data (one line per floor) to learn how much power each part of the Tower needs
+				do
+					local hum = char()
+					local hp = hum and hum.Health or 0
+					local T = M._tStat
+					if T then
+						T.minHp = math.min(T.minHp or hp, hp)
+						if T.type == "Boss" then
+							local se = workspace:FindFirstChild("SpawnedEntities")
+							for _, e in ipairs(se and se:GetChildren() or {}) do
+								local h = e:FindFirstChildOfClass("Humanoid")
+								if h and h.MaxHealth > (T.bossHp or 0) then T.boss, T.bossHp = e.Name, h.MaxHealth end
+							end
+						end
+					end
+					if key ~= M._towerKey then
+						if T and appendfile then
+							local maxHp = hum and hum.MaxHealth or 0
+							pcall(appendfile, "auto_farm_towerlog_" .. lp.UserId .. ".csv", ("%s,%s,%d,%s,%d,%d,%d,%d,%s,%d\n"):format(
+								os.date("%Y-%m-%d %H:%M:%S"), lp.Name, T.floor, T.type, math.floor(os.clock() - T.t0),
+								math.floor(T.minHp or 0), math.floor(maxHp), T.power, tostring(T.boss or ""), math.floor(T.bossHp or 0)))
+						end
+						local fn = "auto_farm_towerlog_" .. lp.UserId .. ".csv"
+						if writefile and isfile and not isfile(fn) then pcall(writefile, fn, "time,account,floor,type,seconds,lowest_hp,max_hp,power,boss_or_result,boss_hp_or_level\n") end
+						M._tStat = { floor = tonumber(fl.Current) or 0, type = ftype, t0 = os.clock(), minHp = hp, power = math.floor(M.powerScore and M.powerScore() or 0) }
+					end
+				end
 				if key ~= M._towerKey then M._towerKey = key log(("tower floor %s: %s"):format(tostring(fl.Current), ftype)) end
 				local cur = tonumber(fl.Current) or 0
 				if cur > (M.side.towerBest or 0) then M.side.towerBest = cur end
@@ -2135,6 +2162,12 @@ local function runDungeon()
 	if tower then
 		local fl = inst.Data.Floor
 		log(("tower run over at floor %s%s"):format(tostring(fl and fl.Current), inst.Data.Failed and " (failed)" or ""))
+		pcall(function()
+			local d = data()
+			appendfile("auto_farm_towerlog_" .. lp.UserId .. ".csv", ("%s,%s,%s,RUN_END,0,0,0,%d,%s,%d\n"):format(os.date("%Y-%m-%d %H:%M:%S"), lp.Name,
+				tostring(fl and fl.Current), math.floor(M.powerScore()), inst.Data.Failed and "failed" or "left", d and d.Data.Leveling.Level or 0))
+		end)
+		M._tStat = nil
 		if M.side.towerPrizeGoal then
 			-- a prize run that stopped below the prize floor: remember how strong you were, and try again only once you are stronger
 			M.side.prizeTry = { fl = tonumber(fl and fl.Current) or 0, lv = (data() and data().Data.Leveling.Level) or 0, sc = M.powerScore() }
@@ -4988,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22t"
+M.VERSION = "v22u"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6544,7 +6577,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22t loaded")
+log("AUTO v22u loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
