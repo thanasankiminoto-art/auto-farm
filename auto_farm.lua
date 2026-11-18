@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794988098
+--@@BUILD 1794988876
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1972,7 +1972,7 @@ local function runDungeon()
 	local tower = inTower()
 	local function going()
 		if inst.Data.Failed then return false end
-		if tower and M.side.towerDone then return false end -- reached the floor you asked for
+		if tower and M.side.towerDone and not M.side.towerPrizeGoal then return false end -- reached the floor you asked for
 		if M._goalHit then M._goalHit = nil return false end -- Catacombs / Arena floor goal reached
 		if tower then return true end -- waves keep coming; stops on fail or long idle (below)
 		return not inst.Data.Completed
@@ -1993,7 +1993,13 @@ local function runDungeon()
 				-- the Tower restarts at floor 1 on every entry, so it has one number only: the goal floor.
 				-- leave once that floor is cleared (= the next floor has started)
 				if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end -- old "601" style value
-				if cur > (M.side.towerGoal or 600) and M.side.towerRepeat and not M._goalHit then
+				if M.side.towerPrizeGoal and cur > M.side.towerPrizeGoal and not M._goalHit then
+					-- a run only for a Gear Goals prize (pet / mount): its floor is cleared, leave
+					M._goalHit = true
+					log(("tower: floor %d cleared - prize for Gear Goals reached, leaving"):format(cur - 1))
+					M.side.towerPrizeGoal = nil
+					saveState()
+				elseif cur > (M.side.towerGoal or 600) and M.side.towerRepeat and not M._goalHit then
 					-- repeat on: leave now, the list brings it back in its turn (starts again from floor 1)
 					M._goalHit = true
 					M.side.towerRuns = (M.side.towerRuns or 0) + 1
@@ -3353,6 +3359,7 @@ M.levelModeRun = function()
 	local pr = M.prio
 	if M.prioRun("floor", false) then return true end
 	if M.prioRun("daily", false) then return true end
+	if M.towerPrizeTick() then return true end
 	if not M._noQuestWork and M.backHome() then return true end
 	if M.prioRun("quests", false) then return true end
 	if M.oldQuestTick() then return true end
@@ -3375,6 +3382,31 @@ M.levelModeRun = function()
 	end
 	return false
 end
+-- a Gear Goals pet / mount that is a Tower floor prize and not owned yet: run the Tower up to that floor
+M.towerPrizeWant = function()
+	local G = M.gearCfg()
+	local best
+	for _, id in ipairs({ "pet", "mount" }) do
+		local cfg = G[id]
+		local cls = id == "pet" and "Companions" or "Mounts"
+		local fl = cfg and cfg.name and M.TOWER_PRIZES[cfg.name]
+		if fl and #M.gearCopies(cls, cfg.name) == 0 and (not best or fl < best.fl) then best = { fl = fl, name = cfg.name } end
+	end
+	return best
+end
+M.towerPrizeTick = function()
+	if inDungeon() or M.sellTrip or M.onTrip() or M.side.questTrip then return false end
+	local w = M.towerPrizeWant()
+	if not w then M.side.towerPrizeGoal = nil return false end
+	if os.time() < (M.side.prizeNext or 0) then return false end
+	if not M.towerFloor() then return false end -- the Tower's map isn't open yet
+	M.side.prizeNext = os.time() + 1200 -- a failed run tries again in 20 min
+	M.side.towerPrizeGoal = w.fl
+	saveState()
+	log(("tower: going for %s (Gear Goals) - prize of floor %d"):format(w.name, w.fl))
+	enterDungeon("TOWER:Tower")
+	return true
+end
 M.prioTick = function()
 	M.prioMigrate()
 	local pr = M.prio
@@ -3384,6 +3416,7 @@ M.prioTick = function()
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and (id == "floor" or id == "daily") and M.prioRun(id, false) then return true end
 	end
+	if M.towerPrizeTick() then return true end
 	if M.gearStreakRun() then return true end
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and id == "quests" and not M._noQuestWork and M.backHome() then return true end -- quests left at home
@@ -4064,7 +4097,7 @@ M.eggTick = function()
 	for _, id in ipairs({ "pet", "mount" }) do
 		local cfg = G[id]
 		local sl = id == "pet" and { cls = "Companions" } or { cls = "Mounts" }
-		if cfg and cfg.name and #M.gearCopies(sl.cls, cfg.name) == 0 then
+		if cfg and cfg.name and cfg.get ~= "buy" and #M.gearCopies(sl.cls, cfg.name) == 0 then
 			local fl, e = M.eggFor(cfg.name)
 			if fl then want = { name = cfg.name, fl = fl, e = e, cls = sl.cls } break end
 		end
@@ -4866,7 +4899,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22j"
+M.VERSION = "v22l"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5750,7 +5783,12 @@ do
 			local cfg = M.gearCfg()[sl.id]
 			return ("%s: %s"):format(sl.title, hl(cfg and cfg.name or "nothing picked"))
 		end)
-		dropdownRow(b, "How to get it", function() return { { "farm", "Farm until it drops" }, { "buy", "Buy on the market" }, { "both", "Farm, and buy if it's on sale" } } end,
+		dropdownRow(b, "How to get it", function()
+			if sl.flat then -- pets / mounts come from a map's egg, not from drops
+				return { { "farm", "Roll the egg with Coins" }, { "buy", "Buy on the market" }, { "both", "Roll the egg, and buy if it's on sale" } }
+			end
+			return { { "farm", "Farm until it drops" }, { "buy", "Buy on the market" }, { "both", "Farm, and buy if it's on sale" } }
+		end,
 			function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.get or "farm" end,
 			function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].get = v end)
 		numRow(b, "Max price (0 = no limit)", function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.maxPrice or 0 end,
@@ -6409,7 +6447,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22j loaded")
+log("AUTO v22l loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
