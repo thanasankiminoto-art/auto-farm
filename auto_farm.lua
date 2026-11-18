@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794980062
+--@@BUILD 1794980850
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3237,6 +3237,11 @@ M.levelModeRun = function()
 	if not M._noQuestWork and M.backHome() then return true end
 	if M.prioRun("quests", false) then return true end
 	if M.oldQuestTick() then return true end
+	-- on a quest trip and the quest list found nothing (more) to do here: the trip is over, go home before dungeons / bosses
+	if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
+		M.questTripEnd("nothing (more) to do here")
+		if M.backHome() then return true end
+	end
 	if M.backHome() then return true end
 	local best, bestT
 	for _, id in ipairs({ "dungeons", "boss" }) do
@@ -3265,6 +3270,11 @@ M.prioTick = function()
 		if pr.on[id] and id == "quests" and not M._noQuestWork and M.backHome() then return true end -- quests left at home
 		if pr.on[id] and id == "quests" and M.prioRun(id, false) then return true end
 		if pr.on[id] and id == "quests" and M.oldQuestTick() then return true end
+		-- on a quest trip and the quest list found nothing (more) to do here: the trip is over, go home before dungeons / bosses
+		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
+			M.questTripEnd("nothing (more) to do here")
+			if M.backHome() then return true end
+		end
 	end
 	-- the repeatable ones take turns: whoever went longest ago goes next (list order breaks ties);
 	-- one still inside its waiting time is skipped unless nothing else is ready
@@ -3794,6 +3804,15 @@ M.questTripEnd = function(why)
 	log(("quest trip to map %s over (%s)%s"):format(tostring(sd.questFloor), why, open > 0 and (" - %d left there, next try in 3 h"):format(open) or ""))
 	sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = nil, nil, nil, nil, nil
 	M.saveState()
+end
+-- a quest of this trip's map is still open (taken, not ready to hand in)
+M.questTripOpen = function()
+	local sd = M.side
+	local list = (M.questBookCached())[tostring(sd.questFloor or "")] or {}
+	for _, q in ipairs(quests()) do
+		if (list[q.ID] or (sd.questMob and q.MobToKill == sd.questMob)) and q.Objective ~= "Return" then return true end
+	end
+	return false
 end
 -- true while the trip's quests are still moving: nothing may pull the character home or up a map
 M.questTripHold = function()
@@ -4337,7 +4356,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21x"
+M.VERSION = "v21y"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5765,7 +5784,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21x loaded")
+log("AUTO v21y loaded")
 
 end, debug.traceback)
 if not __ok then
