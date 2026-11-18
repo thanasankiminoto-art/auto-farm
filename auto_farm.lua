@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794984892
+--@@BUILD 1794988098
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1139,6 +1139,11 @@ local function equipBestGear()
 		return false
 	end
 	local w1Goal, w2Goal, armorGoal = goalActive("w1", "Weapons"), goalActive("w2", "Weapons"), goalActive("armor", "Armor")
+	if M.opt.wearStrongest ~= false then
+		-- Gear Goals picks are upgraded in the bag; what you wear is simply the strongest you own
+		-- (a pick goes on by itself once its upgrades make it the strongest)
+		w1Goal, w2Goal, armorGoal = false, false, false
+	end
 	M._noDual = M._noDual or {}
 	local function wscore(it) return M.weaponScore(M.itemStats(it, "Weapons")) end
 	local function spaced() task.wait(math.max(0, (M._lastEquipAt or 0) + 2.5 - os.clock())) end
@@ -3688,8 +3693,9 @@ M.gearUpgrade = function(sl, copy, target)
 	if not okUp then log("ERR upgrading " .. tostring(it.Name) .. ": " .. tostring(errUp)) end
 	local lv = (it.Leveling and it.Leveling.Level) or 1
 	if lv > from then log(("gear goal: %s Lv %d -> %d"):format(it.Name, from, lv)) end
-	-- always put it back in the hand, even when the upgrade failed (the spare must not stay there)
-	if lv <= myLevel then M.gearWear(sl, k, it) end
+	-- it was worn: always put it back, even when the upgrade failed (the spare must not stay there);
+	-- it was in the bag: it stays there (the strongest gear is worn by the best-gear check)
+	if lv <= myLevel and (copy.where ~= "bag" or M.opt.wearStrongest == false) then M.gearWear(sl, k, it) end
 end
 
 -- look at every slot; upgrade / wear what can be done now, list what has to be farmed
@@ -3772,6 +3778,8 @@ M.gearTick = function(force)
 				local mine = sl.cls == "Weapons" and ("hand" .. sl.hand) or "armor"
 				if not wearable then
 					M.gearState[sl.id] = M.gearState[sl.id] .. " - too high to wear yet"
+				elseif M.opt.wearStrongest ~= false then
+					if copy.where == "bag" then M.gearState[sl.id] = M.gearState[sl.id] .. " - in the bag until it is your strongest" end
 				elseif copy.where ~= mine and (not M._gearNoWear or (M._gearNoWear[sl.id] or 0) < os.clock()) then
 					local k, it = M.gearFree(sl, copy)
 					if k then M.gearWear(sl, k, it) end
@@ -4858,7 +4866,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22i"
+M.VERSION = "v22j"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6133,6 +6141,8 @@ do
 		end
 		return head .. "\n" .. table.concat(parts, "\n")
 	end, 110)
+	if M.opt.wearStrongest == nil then M.opt.wearStrongest = true end
+	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
 	optToggle(h, "Roll companion eggs for the picked pet / mount (Coins only)", "eggRoll")
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
@@ -6399,7 +6409,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22i loaded")
+log("AUTO v22j loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
