@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794993935
+--@@BUILD 1794994086
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22y"
+M.VERSION = "v22z"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6376,6 +6376,51 @@ end
 -- SETTINGS
 do
 	local L, R = newPage("settings")
+	do
+		-- Discord: paste webhook links here (they are kept in files in the executor workspace, never in the script)
+		local dc = card(R, "Discord", "D")
+		local function linkRow(label, file)
+			local row = mk("Frame", { Size = UDim2.new(1, 0, 0, 54), BackgroundTransparency = 1, LayoutOrder = nextOrder() }, dc)
+			mk("TextLabel", { Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, Text = label, TextColor3 = C.text, Font = F, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left }, row)
+			local box = mk("TextBox", { Size = UDim2.new(1, 0, 0, 28), Position = UDim2.new(0, 0, 0, 22), BackgroundColor3 = C.field, Text = "", PlaceholderText = "paste a webhook link (https://discord.com/api/webhooks/...)", TextColor3 = C.accent, PlaceholderColor3 = C.dim, Font = F, TextSize = 12, ClearTextOnFocus = true, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, row)
+			corner(box, 6)
+			pad(box, 8, 8, 0, 0)
+			local function cur() local ok, u = pcall(function() return isfile(file) and readfile(file):gsub("%s", "") or "" end) return ok and u or "" end
+			local function paint()
+				if box:IsFocused() then return end
+				local u = cur()
+				box.Text = u ~= "" and ("saved ..." .. u:sub(-6)) or ""
+			end
+			paint()
+			paints[#paints + 1] = paint
+			table.insert(conns, box.FocusLost:Connect(function()
+				local t = box.Text:gsub("%s", "")
+				if t:match("^https://[%w%.]*discord%.com/api/webhooks/%d+/[%w%-_]+$") then
+					pcall(writefile, file, t)
+					status("Discord link saved")
+				elseif t == "" or t == "-" then
+					if t == "-" then pcall(writefile, file, "") status("Discord link removed") end
+				else
+					status("That is not a Discord webhook link")
+				end
+				paint()
+			end))
+		end
+		linkRow("Alerts: disconnect / back in game (all accounts)", "auto_farm_webhook.txt")
+		linkRow("Live status card for this account (empty = alerts channel)", "auto_farm_webhook_card_" .. lp.UserId .. ".txt")
+		textRow(dc, "Paste a link and click outside the box to save. Type - to remove one. Only the last 6 letters are shown.")
+		if M.opt.discordAlerts == nil then M.opt.discordAlerts = true end
+		if M.opt.discordCard == nil then M.opt.discordCard = true end
+		optToggle(dc, "Post when an account drops / is back", "discordAlerts")
+		optToggle(dc, "Live status card (edited every 2 min)", "discordCard")
+		buttonRow(dc, "Send a test to the alerts channel", nil, function()
+			local ok = M.discord and M.discord(("🔔 ทดสอบจาก MOI HUB (%s) - %s"):format(lp.Name, os.date("%H:%M")), true)
+			status(ok and "Test sent" or "Could not send: no link saved, or this executor can't send web requests")
+		end)
+		buttonRow(dc, "Update the status card now", nil, function()
+			if M.discordStatus then task.spawn(function() pcall(M.discordStatus) status("Status card updated") end) end
+		end)
+	end
 	local b = card(L, "Window", "W")
 	textRow(b, "Right Ctrl shows / hides this window. Drag it by the top bar.")
 	optToggle(b, "Auto press Play on the start screen", "autoPlay")
@@ -6577,7 +6622,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22y loaded")
+log("AUTO v22z loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6614,7 +6659,8 @@ M.webhookUrl = function()
 	u = ok and type(u) == "string" and u:gsub("%s", "") or ""
 	return u ~= "" and u or nil
 end
-M.discord = function(text)
+M.discord = function(text, force)
+	if not force and M.opt.discordAlerts == false then return false end
 	local url = M.webhookUrl()
 	if not url then return false end
 	local req = (syn and syn.request) or http_request or request or (fluxus and fluxus.request)
