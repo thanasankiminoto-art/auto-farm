@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794989180
+--@@BUILD 1794990379
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1967,7 +1967,7 @@ local function runDungeon()
 	if not inst then status("Dungeon data not found") return end
 	M._dungeonRunning = true
 	M._visitStart, M._goalHit = nil, nil
-	M._prizeT0, M._prizeF0 = nil, nil
+	M._prizeKey, M._prizeFloorT = nil, nil
 	M.pickFortune(inst)
 	local idle = 0
 	local tower = inTower()
@@ -1994,16 +1994,13 @@ local function runDungeon()
 				-- the Tower restarts at floor 1 on every entry, so it has one number only: the goal floor.
 				-- leave once that floor is cleared (= the next floor has started)
 				if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end -- old "601" style value
-				-- prize run too slow for this character (the floors take too long): stop and wait until stronger
+				-- prize run: every floor takes its time (thanasan49 needed about 8 h for 600 floors), so the pace says nothing.
+				-- What decides it is the bosses: one that holds you up for more than 8 min means you aren't strong enough yet.
 				if M.side.towerPrizeGoal and not M._goalHit then
-					M._prizeT0 = M._prizeT0 or os.clock()
-					M._prizeF0 = M._prizeF0 or cur
-					local el = os.clock() - M._prizeT0
-					local done = math.max(1, cur - M._prizeF0)
-					local eta = el / done * math.max(0, M.side.towerPrizeGoal - cur)
-					if el > 600 and eta > 5400 then
+					if key ~= M._prizeKey then M._prizeKey, M._prizeFloorT = key, os.clock() end
+					if ftype == "Boss" and os.clock() - (M._prizeFloorT or os.clock()) > 480 then
 						M._goalHit = true
-						log(("tower: floor %d of %d - at this pace it needs about %d more min, too slow: stopping until you are stronger"):format(cur, M.side.towerPrizeGoal, math.floor(eta / 60)))
+						log(("tower: the boss of floor %d takes over 8 min - not strong enough for floor %d yet, stopping"):format(cur, M.side.towerPrizeGoal))
 					end
 				end
 				if M.side.towerPrizeGoal and cur > M.side.towerPrizeGoal and not M._goalHit then
@@ -2127,6 +2124,7 @@ local function runDungeon()
 			M.side.prizeTry = { fl = tonumber(fl and fl.Current) or 0, lv = (data() and data().Data.Leveling.Level) or 0, sc = M.powerScore() }
 			M.side.towerPrizeGoal = nil
 			log(("tower: prize floor not reached (got to %s) - next try once you are stronger (Lv +3 or gear +10%%)"):format(tostring(fl and fl.Current)))
+			M.side.towerBest = math.max(M.side.towerBest or 0, tonumber(fl and fl.Current) or 0)
 			saveState()
 		end
 	elseif inst.Data.Completed then log("dungeon cleared") end
@@ -4944,7 +4942,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22o"
+M.VERSION = "v22p"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6493,7 +6491,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22o loaded")
+log("AUTO v22p loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
