@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794981199
+--@@BUILD 1794982153
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3454,6 +3454,13 @@ M.gearSources = function(itemName)
 		if r.Class == "EtherShop" and find(r.Data, 4) then add("shop", nil, "Ether shop (Ether Crystals)", nil, false) end
 		if r.Class == "BountyShop" and find(r.Data, 4) then add("shop", nil, "Bounty shop (Bounty Boons)", nil, false) end
 	end
+	do
+		local efl, e = M.eggFor(itemName)
+		if efl then
+			local pct = M.eggChance(itemName, e)
+			add("egg", nil, ("%s on map %d: %s Coins a roll%s - rolled with Coins only"):format(tostring(e.name), efl, tostring(e.c1), pct and (", %s%% each"):format(tostring(pct)) or ""), efl, false)
+		end
+	end
 	if M.TOWER_PRIZES[itemName] then
 		local tf = M.towerFloor and M.towerFloor()
 		add("tower", nil, ("Tower floor %d (once)"):format(M.TOWER_PRIZES[itemName]), tf, false)
@@ -3465,7 +3472,7 @@ M.gearSources = function(itemName)
 			end
 		end
 	end
-	local rank = { dungeon = 1, mob = 2, boss = 3, daily = 4, tower = 5, craft = 6, chest = 7, shop = 8, box = 9 }
+	local rank = { dungeon = 1, mob = 2, boss = 3, daily = 4, egg = 5, tower = 5, craft = 6, chest = 7, shop = 8, box = 9 }
 	table.sort(out, function(a, b)
 		if a.ok ~= b.ok then return a.ok end
 		if rank[a.kind] ~= rank[b.kind] then return rank[a.kind] < rank[b.kind] end
@@ -3756,6 +3763,15 @@ M.learnDrops = function()
 			if not cache[item][key] then cache[item][key] = true changed = true end
 		end
 	end
+	if info.FloorCompanionEgg then
+		local e = info.FloorCompanionEgg
+		cache.__eggs = cache.__eggs or {}
+		local cur = cache.__eggs[tostring(fl)]
+		if not cur or cur.c1 ~= e.x1Coins or #(cur.contents or {}) ~= #(e.Contents or {}) then
+			cache.__eggs[tostring(fl)] = { name = e.Name, contents = e.Contents, c1 = e.x1Coins, c10 = e.x10Coins }
+			changed = true
+		end
+	end
 	cache.__floors = cache.__floors or {}
 	if not cache.__floors[tostring(fl)] then cache.__floors[tostring(fl)] = os.time() changed = true end
 	cache.__mobFloors = cache.__mobFloors or {}
@@ -3958,13 +3974,103 @@ M.oldQuestTick = function()
 	sd.oldQuestNext = now + 600
 	return false
 end
+-- companion eggs: every map has a shop egg (Info.FloorCompanionEgg, only the map you are on).
+-- A Gear Goals pet / mount that is in a map's egg is rolled for with Coins only (never Premium / Bleeter Bits).
+M.eggFor = function(name)
+	for fl, e in pairs((M.loadDrops()).__eggs or {}) do
+		for _, c in ipairs(e.contents or {}) do
+			if c == name then return tonumber(fl), e end
+		end
+	end
+end
+M.eggChance = function(name, e)
+	local info = gameInfo() or {}
+	local ok, ch = pcall(function() return require(RS.Modules.RarityColors.Chances) end)
+	if not ok or not ch then return nil end
+	local def = (info.Companions or {})[name] or (info.Mounts or {})[name]
+	if not def then return nil end
+	local same = 0
+	for _, c in ipairs(e.contents or {}) do
+		local x = (info.Companions or {})[c] or (info.Mounts or {})[c]
+		if x and x.Rarity == def.Rarity then same += 1 end
+	end
+	return (tonumber(ch[def.Rarity]) or 0) / math.max(1, same)
+end
+M.eggTick = function()
+	if M.opt.eggRoll ~= true or inDungeon() or M.sellTrip then return false end
+	local d = data()
+	if not d then return false end
+	local G = M.gearCfg()
+	local want
+	for _, id in ipairs({ "pet", "mount" }) do
+		local cfg = G[id]
+		local sl = id == "pet" and { cls = "Companions" } or { cls = "Mounts" }
+		if cfg and cfg.name and #M.gearCopies(sl.cls, cfg.name) == 0 then
+			local fl, e = M.eggFor(cfg.name)
+			if fl then want = { name = cfg.name, fl = fl, e = e, cls = sl.cls } break end
+		end
+	end
+	if not want then return false end
+	local keep = tonumber(M.opt.eggKeep) or 30000
+	local coins = d.Data.Currencies.Coins or 0
+	local c1 = tonumber(want.e.c1) or 1000
+	if coins - c1 < keep then
+		M.eggState = ("%s: waiting for coins (keeps %d, a roll is %d)"):format(want.name, keep, c1)
+		return false
+	end
+	local cur = currentFloor()
+	local sd = M.side
+	if cur ~= want.fl then
+		if M.onTrip() or sd.questTrip or os.time() < (sd.eggNext or 0) then return false end
+		if M.dailyNext and M.dailyNext() then return false end
+		local okFloor = false
+		for _, f in ipairs(M.floorList()) do if f.n == want.fl and f.ok then okFloor = true end end
+		if not okFloor then return false end
+		sd.eggNext = os.time() + 1800 -- one trip per 30 min at most
+		sd.eggTrip = os.time()
+		saveState()
+		log(("egg: going to map %d to roll %s for %s with Coins"):format(want.fl, tostring(want.e.name), want.name))
+		if M.travelTo(want.fl, "roll the companion egg") then task.wait(20) return true end
+		return false
+	end
+	-- on the egg's map: roll with Coins only, x10 while it fits above the amount kept, then x1
+	local info = gameInfo() or {}
+	if not info.FloorCompanionEgg then return false end
+	local root
+	for _, r in pairs(RC._replicas) do if r.Class == "PlayerData" and r.Children and r.Children[1] then root = r end end
+	if not root then return false end
+	local rolls, before = 0, coins
+	status("Rolling " .. tostring(want.e.name) .. " for " .. want.name)
+	while M.running and #M.gearCopies(want.cls, want.name) == 0 do
+		coins = d.Data.Currencies.Coins or 0
+		local c10 = tonumber(want.e.c10) or c1 * 10
+		local n = (coins - c10 >= keep) and 10 or (coins - c1 >= keep) and 1 or 0
+		if n == 0 then break end
+		root:FireServer("PurchaseFloorCompanionEgg", { Currency = "Coins", Count = n })
+		local t0 = os.clock()
+		repeat task.wait(0.3) until (d.Data.Currencies.Coins or 0) < coins or os.clock() - t0 > 6
+		if (d.Data.Currencies.Coins or 0) >= coins then log("egg: the game took no coins - stopping") break end
+		rolls += n
+		task.wait(1.5)
+	end
+	local got = #M.gearCopies(want.cls, want.name) > 0
+	sd.eggRolls = (sd.eggRolls or 0) + rolls
+	sd.eggTrip = nil
+	saveState()
+	log(("egg: %d rolls for %d coins%s"):format(rolls, before - (d.Data.Currencies.Coins or 0), got and (" - got " .. want.name .. "!") or ""))
+	M.eggState = got and (want.name .. ": got it") or ("%s: %d rolls so far, not yet"):format(want.name, sd.eggRolls)
+	if got then M._nextGearGoal = 0 pcall(M.gearTick, true) end
+	pcall(M.goHome)
+	return true
+end
 -- visit every map you can enter once, just to read its monsters' drops, then go home
 M.scanStart = function(onlyMissing)
 	local left = {}
 	local known = (M.loadDrops()).__mobFloors or {}
+	local eggs = (M.loadDrops()).__eggs or {}
 	local qb = M.loadQuestBook()
 	for _, f in ipairs(M.floorList()) do
-		if f.ok and not (onlyMissing and known[tostring(f.n)] and qb[tostring(f.n)]) then left[#left + 1] = f.n end
+		if f.ok and not (onlyMissing and known[tostring(f.n)] and qb[tostring(f.n)] and (eggs[tostring(f.n)] or f.n == 1)) then left[#left + 1] = f.n end
 	end
 	if #left == 0 then return end
 	M.side.scanLeft = left
@@ -3977,9 +4083,10 @@ M.scanTick = function()
 	-- a map you can enter whose monster drops were never read (new PC, new map): go read it once, by itself
 	if not sd.scanLeft and not inDungeon() and os.time() - (sd.autoScanAt or 0) > 6 * 3600 then
 		local known = (M.loadDrops()).__mobFloors or {}
+		local eggs = (M.loadDrops()).__eggs or {}
 		local qb = M.loadQuestBook()
 		for _, f in ipairs(M.floorList()) do
-			if f.ok and not (known[tostring(f.n)] and qb[tostring(f.n)]) then
+			if f.ok and not (known[tostring(f.n)] and qb[tostring(f.n)] and (eggs[tostring(f.n)] or f.n == 1)) then
 				sd.autoScanAt = os.time()
 				log("monster drops: map " .. f.n .. " never read - reading the missing maps")
 				M.scanStart(true)
@@ -4162,6 +4269,7 @@ local function scheduler()
 			end
 			if sellTick() then return end
 			if M.bountyTick() then return end -- a bounty on this map comes before everything else
+			if M.eggTick() then return end
 			if M.on.unlock then
 				unlockAll()
 				local open, all = tpCount()
@@ -4425,7 +4533,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21z"
+M.VERSION = "v22a"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5591,6 +5699,10 @@ do
 		end
 		return head .. "\n" .. table.concat(parts, "\n")
 	end, 110)
+	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
+	optToggle(h, "Roll companion eggs for the picked pet / mount (Coins only)", "eggRoll")
+	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
+	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
 	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
 	textRow(h, function()
 		local st = M.side.gearStreak or 0
@@ -5853,7 +5965,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21z loaded")
+log("AUTO v22a loaded")
 
 end, debug.traceback)
 if not __ok then
