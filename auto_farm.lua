@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794984028
+--@@BUILD 1794984521
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1678,10 +1678,10 @@ M.enterDailyBoss = function(name)
 	saveState()
 	queueSelf()
 	release()
-	d:FireServer("EnterDailyBoss", { DailyBoss = name })
+	M._tpPending = os.clock() + 45 d:FireServer("EnterDailyBoss", { DailyBoss = name })
 	task.wait(3)
 	for _, r in pairs(RC._replicas) do
-		if r.Class == "DailyBoss" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
+		M._tpPending = os.clock() + 45 if r.Class == "DailyBoss" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
 	end
 	task.wait(15)
 end
@@ -1755,10 +1755,10 @@ local function enterDungeon(name)
 		saveState()
 		queueSelf()
 		release()
-		if arena then d:FireServer("EnterBattleArena", { BattleArena = name:sub(7) }) else d:FireServer("EnterEther") end
+		M._tpPending = os.clock() + 45 if arena then d:FireServer("EnterBattleArena", { BattleArena = name:sub(7) }) else d:FireServer("EnterEther") end
 		task.wait(3)
 		for _, r in pairs(RC._replicas) do
-			if r.Data and type(r.Data.Players) == "table" and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
+			M._tpPending = os.clock() + 45 if r.Data and type(r.Data.Players) == "table" and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
 		end
 		task.wait(15)
 		return
@@ -1786,11 +1786,11 @@ local function enterDungeon(name)
 		saveState()
 		queueSelf()
 		release()
-		d:FireServer("EnterCatacombs")
+		M._tpPending = os.clock() + 45 d:FireServer("EnterCatacombs")
 		task.wait(3)
 		for _, r in pairs(RC._replicas) do
 			if r.Class == "Catacomb" or r.Class == "Catacombs" then
-				if r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
+				M._tpPending = os.clock() + 45 if r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
 			end
 		end
 		task.wait(15)
@@ -1817,10 +1817,10 @@ local function enterDungeon(name)
 		saveState()
 		queueSelf()
 		release()
-		d:FireServer("EnterTower")
+		M._tpPending = os.clock() + 45 d:FireServer("EnterTower")
 		task.wait(3)
 		for _, r in pairs(RC._replicas) do
-			if r.Class == "Tower" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
+			M._tpPending = os.clock() + 45 if r.Class == "Tower" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
 		end
 		task.wait(15)
 		return
@@ -1835,7 +1835,7 @@ local function enterDungeon(name)
 	saveState()
 	queueSelf()
 	release()
-	d:FireServer("EnterDungeon", { Dungeon = name })
+	M._tpPending = os.clock() + 45 d:FireServer("EnterDungeon", { Dungeon = name })
 	task.wait(15) -- teleport takes us away; if it didn't, carry on
 end
 
@@ -1935,6 +1935,26 @@ M.solveTowerObby = function(inst)
 	return true
 end
 
+-- play the same boss / dungeon again without leaving: every Return + entry is two teleports,
+-- and a teleport is where the game sometimes crashes. Only when nothing else is waiting.
+M.replayOk = function(inst)
+	local n = tonumber(M.opt.replay) or 3
+	if n <= 0 or not M.prio.enabled or not inst.Data.Completed or inst.Data.Failed then return false end
+	local g = (gameInfo() or {})._GameData or {}
+	if (g.IsDailyBoss and g.IsDailyBoss ~= false) or (g.IsTower and g.IsTower ~= false) then return false end
+	if (g.IsCatacomb and g.IsCatacomb ~= false) or (g.IsBattleArena and g.IsBattleArena ~= false) then return false end
+	if (M.side.replayN or 0) >= n then return false end
+	if M._noQuestWork == false then return false end -- quests waiting at home come first
+	if M.dailyNext and M.dailyNext() then return false end -- a daily boss is due
+	if M.side.questTrip or M.side.mkCheckReq or M.side.scanLeft then return false end
+	if M.bagSize then -- bag nearly full: go sell
+		local n2, lim = M.bagSize()
+		if n2 >= math.min(M.SELL_AT or 180, lim - 5) - 15 then return false end
+	end
+	M.side.replayN = (M.side.replayN or 0) + 1
+	log(("playing it again (%d/%d) - fewer teleports than going back and in"):format(M.side.replayN, n))
+	return true
+end
 local function runDungeon()
 	local inst
 	local t0 = os.clock()
@@ -2091,9 +2111,17 @@ local function runDungeon()
 		saveState()
 		queueSelf()
 		local farming = M.cycle.enabled and M.cycle.mode == "dungeon" and dungeonTimeLeft() > 0 and inst.Data.Completed
+		if not farming and not M.cycle.enabled and M.replayOk(inst) then
+			saveState()
+			queueSelf()
+			M._tpPending = os.clock() + 45 inst:FireServer("PlayAgain")
+			task.wait(20)
+			return
+		end
+		M.side.replayN = 0
 		if farming then
 			status(("Boss again (%d min left)"):format(math.ceil(dungeonTimeLeft() / 60)))
-			inst:FireServer("PlayAgain")
+			M._tpPending = os.clock() + 45 inst:FireServer("PlayAgain")
 		else
 			if M.cycle.enabled and M.cycle.mode == "dungeon" and dungeonTimeLeft() <= 0 then
 				M.cycle.mode = "quest"
@@ -2102,7 +2130,7 @@ local function runDungeon()
 				queueSelf()
 			end
 			status("Boss fight over - going back")
-			inst:FireServer("Return")
+			M._tpPending = os.clock() + 45 inst:FireServer("Return")
 		end
 		task.wait(20)
 		return
@@ -2119,10 +2147,10 @@ local function runDungeon()
 				M.cycle.pending = name
 				saveState()
 				queueSelf()
-				inst:FireServer("Return")
+				M._tpPending = os.clock() + 45 inst:FireServer("Return")
 			else
 				status(("Playing again (%d min left)"):format(math.ceil(left / 60)))
-				inst:FireServer("PlayAgain")
+				M._tpPending = os.clock() + 45 inst:FireServer("PlayAgain")
 			end
 		else
 			M.cycle.mode = "quest"
@@ -2131,15 +2159,23 @@ local function runDungeon()
 			saveState()
 			queueSelf()
 			status("Dungeon time over - back to quests")
-			inst:FireServer("Return")
+			M._tpPending = os.clock() + 45 inst:FireServer("Return")
 		end
 		task.wait(20)
 	else
 		-- a one-off run (Tower / Boss function, or started by hand): just go back to the floor
+		if not tower and M.replayOk(inst) then
+			saveState()
+			queueSelf()
+			M._tpPending = os.clock() + 45 inst:FireServer("PlayAgain")
+			task.wait(20)
+			return
+		end
+		M.side.replayN = 0
 		status(tower and "Tower run over - going back" or "Run over - going back")
 		saveState()
 		queueSelf()
-		inst:FireServer("Return")
+		M._tpPending = os.clock() + 45 inst:FireServer("Return")
 		task.wait(20)
 	end
 end
@@ -2160,6 +2196,8 @@ local function bagSize()
 	return ok and n or 0, info and info._GameData.INVENTORY_LIMIT or 200
 end
 
+M.bagSize = bagSize
+M.SELL_AT = SELL_AT
 M.sameItem = function(a, b)
 	return type(a) == "table" and type(b) == "table" and a.Name == b.Name and a.ID ~= nil and a.ID == b.ID
 end
@@ -2246,7 +2284,7 @@ M.goSell = function(back)
 	release()
 	status("Bag full - going to Sunshine Town to sell")
 	log("bag full, travelling to Sunshine Town to sell")
-	data():FireServer("Teleport", { FloorNumber = SELL_FLOOR })
+	M._tpPending = os.clock() + 45 data():FireServer("Teleport", { FloorNumber = SELL_FLOOR })
 	task.wait(20)
 end
 M.SellNow = function() task.spawn(M.goSell, currentFloor()) end
@@ -2298,7 +2336,7 @@ M.doSellHere = function()
 	queueSelf()
 	if back == currentFloor() then return end -- sold on our own floor
 	status("Going back to floor " .. back)
-	data():FireServer("Teleport", { FloorNumber = back })
+	M._tpPending = os.clock() + 45 data():FireServer("Teleport", { FloorNumber = back })
 	task.wait(20)
 end
 
@@ -2541,12 +2579,13 @@ M.travelTo = function(n, why)
 	if not f then return false end
 	if not f.ok then log(("can't travel to %s yet (needs level %d and its boss beaten)"):format(f.name, f.need)) return false end
 	if currentFloor() == n then return false end
+	if os.clock() < (M._tpPending or 0) then return true end -- already on the way somewhere
 	log(("travelling to %s%s"):format(f.name, why and (" (" .. why .. ")") or ""))
 	status("Travelling to " .. f.name)
 	saveState()
 	queueSelf()
 	release()
-	d:FireServer("Teleport", { FloorNumber = n })
+	M._tpPending = os.clock() + 45 d:FireServer("Teleport", { FloorNumber = n })
 	return true
 end
 
@@ -2762,10 +2801,10 @@ enterBoss = function()
 	saveState()
 	queueSelf()
 	release()
-	d:FireServer("EnterBoss")
+	M._tpPending = os.clock() + 45 d:FireServer("EnterBoss")
 	task.wait(3)
 	for _, r in pairs(RC._replicas) do
-		if r.Class == "Boss" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
+		M._tpPending = os.clock() + 45 if r.Class == "Boss" and r.Data.Players and r.Data.Players[1] == lp then pcall(function() r:FireServer("Enter") end) end
 	end
 	task.wait(15)
 	log("boss entry did not teleport") -- still here after 18 s
@@ -2803,7 +2842,7 @@ local function progressTick()
 			release()
 			local dd = data()
 			if not dd then return false end -- already on the way somewhere (data is gone mid-teleport)
-			dd:FireServer("Teleport", { FloorNumber = f.nextN })
+			M._tpPending = os.clock() + 45 dd:FireServer("Teleport", { FloorNumber = f.nextN })
 			task.wait(20)
 			return true
 		end
@@ -4516,6 +4555,19 @@ local function scheduler()
 				task.wait(2)
 				return
 			end
+			if os.clock() < (M._tpPending or 0) and inDungeon() then
+				-- "play again" may restart the run in this same server: a fresh run clears the wait
+				for _, r in pairs(RC._replicas) do
+					if r.Class == "InstanceData" and r.Data and not r.Data.Completed and not r.Data.Failed then M._tpPending = 0 end
+				end
+			end
+			if os.clock() < (M._tpPending or 0) then
+				-- a teleport was asked for: do nothing until it happens (a second one on top of it, or
+				-- equipping / upgrading meanwhile, is where the game crashed before)
+				status("Teleporting...")
+				task.wait(1)
+				return
+			end
 			if os.time() < (M.side.pauseUntil or 0) then
 				status(("Paused for %d s"):format(M.side.pauseUntil - os.time()))
 				release()
@@ -4797,7 +4849,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22f"
+M.VERSION = "v22h"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5465,6 +5517,10 @@ do
 		end
 		return ("Level %s  (%s / %s EXP)%s"):format(hl(lv.Level or "?"), hl(lv.Experience or 0), hl(lv.ExperienceCap or "?"), nextTxt)
 	end, 34)
+	local tpc = card(L, "Teleports", "T")
+	textRow(tpc, function() return ("Teleports in the last hour: %s  (every map change, dungeon / boss entry and exit counts; the game sometimes crashes on one)"):format(hl(M.teleportsLastHour and M.teleportsLastHour() or "?")) end, 34)
+	sliderRow(tpc, "Play the same boss / dungeon again (times in a row)", 0, 10, 1, function() return tonumber(M.opt.replay) or 3 end, function(v) M.opt.replay = v end)
+	textRow(tpc, "Plays again right away instead of going back to the map and in again, while nothing else waits (quests at home, a daily boss, a quest / market trip, a full bag). Daily bosses, Tower, Catacombs and Arena never repeat. 0 = always go back.")
 	local b = card(L, "Priority List", "P")
 	toggleRow(b, "Use the priority list", function() return M.prio.enabled end, function(v)
 		M.setPrio(v)
@@ -6334,7 +6390,23 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22f loaded")
+log("AUTO v22h loaded")
+-- count server changes (= teleports) to see how often the character travels
+do
+	local sd = M.side
+	if sd.lastJob ~= game.JobId then
+		sd.lastJob = game.JobId
+		sd.tpTimes = sd.tpTimes or {}
+		table.insert(sd.tpTimes, os.time())
+		while #sd.tpTimes > 0 and os.time() - sd.tpTimes[1] > 3 * 3600 do table.remove(sd.tpTimes, 1) end
+		pcall(saveState)
+	end
+end
+M.teleportsLastHour = function()
+	local n = 0
+	for _, t in ipairs(M.side.tpTimes or {}) do if os.time() - t <= 3600 then n += 1 end end
+	return n
+end
 
 end, debug.traceback)
 if not __ok then
