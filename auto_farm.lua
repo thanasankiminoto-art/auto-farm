@@ -7,8 +7,15 @@ if not game:IsLoaded() then game.Loaded:Wait() end
 __note("loading...", 4)
 local __lp = game:GetService("Players").LocalPlayer
 while not __lp do task.wait(0.2) __lp = game:GetService("Players").LocalPlayer end
--- start screen: no character yet. Press Play, and make sure the script runs again in the game.
-if not __lp.Character then
+-- start screen: the game's events (PlayerEvents.DialogEvents) only exist after Play is pressed.
+-- Some games show your avatar on the start screen, so "no character" is not enough to tell.
+local __RS = game:GetService("ReplicatedStorage")
+local function __inGame()
+	local pe = __RS:FindFirstChild("PlayerEvents")
+	return pe and pe:FindFirstChild("DialogEvents") ~= nil
+end
+do local t = os.clock() while not __inGame() and os.clock() - t < 4 do task.wait(0.5) end end
+if not __inGame() then
 	pcall(function() if writefile and __g.__AutoSrc then writefile("auto_farm_src.lua", __g.__AutoSrc) end end)
 	pcall(function()
 		if queue_on_teleport then
@@ -65,14 +72,14 @@ end
 	end
 	__note("start screen: pressing Play, the script starts in the game", 8)
 	local t0, seen = os.clock(), false
-	while not __lp.Character and os.clock() - t0 < 120 do
+	while not __inGame() and os.clock() - t0 < 120 do
 		local pg = __lp:FindFirstChild("PlayerGui")
 		for _, b in ipairs(pg and pg:GetDescendants() or {}) do
 			if isPlay(b) then seen = true press(b) break end
 		end
 		task.wait(3)
 	end
-	if not __lp.Character then
+	if not __inGame() then
 		if not seen then
 			local names = {}
 			for _, b in ipairs(__lp.PlayerGui:GetDescendants()) do
@@ -81,8 +88,9 @@ end
 			warn("[Auto Farm] no Play button found. Buttons: " .. table.concat(names, " | "))
 			__note("couldn't find the Play button - press it yourself, the script starts in the game", 15)
 		end
-		__lp.CharacterAdded:Wait()
+		repeat task.wait(1) until __inGame()
 	end
+	if not __lp.Character then __lp.CharacterAdded:Wait() end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
@@ -118,11 +126,11 @@ for _, k in ipairs({ "__noclipConn", "__antiFallConn" }) do
 end
 genv.__SimpleFarm = false
 
-local PE = RS.PlayerEvents
-local DE = PE.DialogEvents
-local MultiHit = PE.MultiEntityHit
-local CharController = require(RS.Modules.CharacterController)
-local RC = require(RS.Packages.ReplicaController)
+local PE = RS:WaitForChild("PlayerEvents")
+local DE = PE:WaitForChild("DialogEvents") -- not there yet on the start screen (before Play)
+local MultiHit = PE:WaitForChild("MultiEntityHit")
+local CharController = require(RS:WaitForChild("Modules"):WaitForChild("CharacterController"))
+local RC = require(RS:WaitForChild("Packages"):WaitForChild("ReplicaController"))
 local FindObjects = RS:FindFirstChild("FloorAssets") and RS.FloorAssets:FindFirstChild("QuestFindObjects")
 
 local M = {
@@ -4306,7 +4314,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21s"
+M.VERSION = "v21t"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5730,7 +5738,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21s loaded")
+log("AUTO v21t loaded")
 
 end, debug.traceback)
 if not __ok then
