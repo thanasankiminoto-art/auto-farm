@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794988933
+--@@BUILD 1794989180
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1967,6 +1967,7 @@ local function runDungeon()
 	if not inst then status("Dungeon data not found") return end
 	M._dungeonRunning = true
 	M._visitStart, M._goalHit = nil, nil
+	M._prizeT0, M._prizeF0 = nil, nil
 	M.pickFortune(inst)
 	local idle = 0
 	local tower = inTower()
@@ -1993,6 +1994,18 @@ local function runDungeon()
 				-- the Tower restarts at floor 1 on every entry, so it has one number only: the goal floor.
 				-- leave once that floor is cleared (= the next floor has started)
 				if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end -- old "601" style value
+				-- prize run too slow for this character (the floors take too long): stop and wait until stronger
+				if M.side.towerPrizeGoal and not M._goalHit then
+					M._prizeT0 = M._prizeT0 or os.clock()
+					M._prizeF0 = M._prizeF0 or cur
+					local el = os.clock() - M._prizeT0
+					local done = math.max(1, cur - M._prizeF0)
+					local eta = el / done * math.max(0, M.side.towerPrizeGoal - cur)
+					if el > 600 and eta > 5400 then
+						M._goalHit = true
+						log(("tower: floor %d of %d - at this pace it needs about %d more min, too slow: stopping until you are stronger"):format(cur, M.side.towerPrizeGoal, math.floor(eta / 60)))
+					end
+				end
 				if M.side.towerPrizeGoal and cur > M.side.towerPrizeGoal and not M._goalHit then
 					-- a run only for a Gear Goals prize (pet / mount): its floor is cleared, leave
 					M._goalHit = true
@@ -2109,6 +2122,13 @@ local function runDungeon()
 	if tower then
 		local fl = inst.Data.Floor
 		log(("tower run over at floor %s%s"):format(tostring(fl and fl.Current), inst.Data.Failed and " (failed)" or ""))
+		if M.side.towerPrizeGoal then
+			-- a prize run that stopped below the prize floor: remember how strong you were, and try again only once you are stronger
+			M.side.prizeTry = { fl = tonumber(fl and fl.Current) or 0, lv = (data() and data().Data.Leveling.Level) or 0, sc = M.powerScore() }
+			M.side.towerPrizeGoal = nil
+			log(("tower: prize floor not reached (got to %s) - next try once you are stronger (Lv +3 or gear +10%%)"):format(tostring(fl and fl.Current)))
+			saveState()
+		end
 	elseif inst.Data.Completed then log("dungeon cleared") end
 	if inst.Data.Completed and M.openChests then pcall(M.openChests) end
 	if not M.running then return end
@@ -3382,6 +3402,17 @@ M.levelModeRun = function()
 	end
 	return false
 end
+-- how strong you are right now: both hands (a second hand of the same type counts) + armor
+M.powerScore = function()
+	local d = data()
+	if not d then return 0 end
+	local eq = d.Data.Equipped
+	local h1, h2 = eq.Hands and eq.Hands[1], eq.Hands and eq.Hands[2]
+	local w = (type(h1) == "table" and M.weaponScore(M.itemStats(h1, "Weapons")) or 0)
+		+ ((type(h1) == "table" and type(h2) == "table" and h2.Class == h1.Class) and M.weaponScore(M.itemStats(h2, "Weapons")) or 0)
+	local a = type(eq.Armor) == "table" and M.armorScore(M.itemStats(eq.Armor, "Armor")) or 0
+	return w * 10 + a
+end
 -- a Gear Goals pet / mount that is a Tower floor prize and not owned yet: run the Tower up to that floor
 M.towerPrizeWant = function()
 	local G = M.gearCfg()
@@ -3397,16 +3428,27 @@ end
 M.towerPrizeTick = function()
 	if inDungeon() or M.sellTrip or M.onTrip() or M.side.questTrip then return false end
 	local w = M.towerPrizeWant()
-	if not w then M.side.towerPrizeGoal = nil return false end
+	if not w then M.side.towerPrizeGoal, M.side.prizeTry, M.prizeState = nil, nil, nil return false end
+	if M.side.prizeTry and M.side.prizeTry.fl >= w.fl then M.side.prizeTry = nil end
 	if os.time() < (M.side.prizeNext or 0) then return false end
 	if not M.towerFloor() then return false end -- the Tower's map isn't open yet
-	-- the goal is still set = the last run ended below the prize floor: wait longer each time (20 min, 40, 80 ... up to 12 h)
+	-- only go when it can be done: a run that died below the prize floor is tried again once you are clearly stronger
 	local sd = M.side
-	if sd.towerPrizeGoal then sd.prizeFails = (sd.prizeFails or 0) + 1 else sd.prizeFails = 0 end
-	sd.prizeNext = os.time() + math.min(12 * 3600, 1200 * 2 ^ (sd.prizeFails or 0))
+	local d = data()
+	local lv = d and d.Data.Leveling.Level or 0
+	local t = sd.prizeTry
+	if t and t.fl < w.fl then
+		local sc = M.powerScore()
+		if lv < (t.lv or 0) + 3 and sc < (t.sc or 0) * 1.10 then
+			M.prizeState = ("%s: Tower floor %d needed, your best try reached %d at Lv %d - waiting until you are stronger (Lv %d or gear +10%%)"):format(w.name, w.fl, t.fl, t.lv or 0, (t.lv or 0) + 3)
+			return false
+		end
+	end
+	sd.prizeNext = os.time() + 1200
 	M.side.towerPrizeGoal = w.fl
 	saveState()
-	log(("tower: going for %s (Gear Goals) - prize of floor %d (best so far %d%s)"):format(w.name, w.fl, sd.towerBest or 0, (sd.prizeFails or 0) > 0 and (", try " .. (sd.prizeFails + 1)) or ""))
+	M.prizeState = ("%s: running the Tower to floor %d"):format(w.name, w.fl)
+	log(("tower: going for %s (Gear Goals) - prize of floor %d (last try reached %s)"):format(w.name, w.fl, t and tostring(t.fl) or "-"))
 	enterDungeon("TOWER:Tower")
 	return true
 end
@@ -4902,7 +4944,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22m"
+M.VERSION = "v22o"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6188,6 +6230,7 @@ do
 	optToggle(h, "Roll companion eggs for the picked pet / mount (Coins only)", "eggRoll")
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
+	textRow(h, function() return M.prizeState or "Tower prizes: nothing to fetch" end)
 	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
 	textRow(h, function()
 		local st = M.side.gearStreak or 0
@@ -6450,7 +6493,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22m loaded")
+log("AUTO v22o loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
