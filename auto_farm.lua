@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794983600
+--@@BUILD 1794984028
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4214,6 +4214,26 @@ M.mkTick = function()
 	local keep = tonumber(M.opt.eggKeep) or 30000
 	local myLevel = d.Data.Leveling.Level or 1
 	local me = lp.UserId
+	-- look up every Gear Goals pick so the Market page can show what is on sale (even ones set to farm)
+	M.side.mkSeen = M.side.mkSeen or {}
+	local looked = {}
+	for _, sl in ipairs(M.GEAR_SLOTS) do
+		local cfg = M.gearCfg()[sl.id]
+		if cfg and cfg.name and not looked[cfg.name] then
+			looked[cfg.name] = true
+			local all = M.mkSearch(cfg.name)
+			local wear, cheapest
+			for _, l in ipairs(all) do
+				if l.seller ~= me then
+					cheapest = cheapest or l.price
+					if not wear and (l.item.Leveling and l.item.Leveling.Level or 1) <= myLevel then wear = l.price end
+				end
+			end
+			M.side.mkSeen[cfg.name] = { n = #all, low = cheapest, wear = wear, at = os.time() }
+			task.wait(0.5)
+		end
+	end
+	M.side.mkCheckReq = nil
 	for _, w in ipairs(M.mkBuyWants()) do
 		status("Market: looking for " .. w.name)
 		local best
@@ -4222,6 +4242,7 @@ M.mkTick = function()
 			if l.seller ~= me and lvl <= myLevel and (w.max <= 0 or l.price <= w.max) then best = l break end
 		end
 		local coins = d.Data.Currencies.Coins or 0
+		if best then pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", { Title = "Market", Text = ("%s on sale: %d coins"):format(w.name, best.price), Duration = 8 }) end) end
 		if not best then
 			M.mkState = ("%s: nothing on the market under your price"):format(w.name)
 		elseif coins - best.price < keep then
@@ -4284,10 +4305,11 @@ end
 M.mkTripTick = function()
 	if inDungeon() or M.sellTrip or currentFloor() == 1 then return false end
 	local sd = M.side
-	if M.onTrip() or sd.questTrip or os.time() < (sd.mkTripNext or 0) then return false end
-	if M.dailyNext and M.dailyNext() then return false end
-	local why
-	if #M.mkBuyWants() > 0 then why = "buy for Gear Goals" end
+	if M.onTrip() or sd.questTrip then return false end
+	if os.time() < (sd.mkTripNext or 0) and not sd.mkCheckReq then return false end
+	if M.dailyNext and M.dailyNext() and not sd.mkCheckReq then return false end
+	local why = sd.mkCheckReq and "check prices"
+	if not why and #M.mkBuyWants() > 0 then why = "buy for Gear Goals" end
 	if not why and M.opt.mkSell and #M.mkSellList() > 0 and ((sd.mkListed or 0) < 3 or (sd.mkNextFree and os.time() >= sd.mkNextFree)) then why = "list items for sale" end
 	if not why then return false end
 	sd.mkTripNext = os.time() + 3600
@@ -4775,7 +4797,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22e"
+M.VERSION = "v22f"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5663,6 +5685,31 @@ do
 	end
 	sliderRow(b, "Keep at least this many Coins (market + eggs)", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(b, function() return M.mkState or "Market: nothing bought yet" end)
+	textRow(b, function()
+		local G, rows = M.gearCfg(), {}
+		local done = {}
+		for _, sl in ipairs(M.GEAR_SLOTS) do
+			local cfg = G[sl.id]
+			if cfg and cfg.name and not done[cfg.name] then
+				done[cfg.name] = true
+				local x = (M.side.mkSeen or {})[cfg.name]
+				if not x then
+					rows[#rows + 1] = ("%s: not checked yet"):format(cfg.name)
+				elseif x.n == 0 or not x.low then
+					rows[#rows + 1] = ("%s: nobody sells it (%d min ago)"):format(cfg.name, math.floor((os.time() - x.at) / 60))
+				else
+					rows[#rows + 1] = ("%s: %s on sale, cheapest %s%s (%d min ago)"):format(cfg.name, hl(x.n), hl(x.low),
+						x.wear and x.wear ~= x.low and (", you can wear one from " .. x.wear) or (x.wear and "" or ", none you can wear yet"), math.floor((os.time() - x.at) / 60))
+				end
+			end
+		end
+		return "On the market (looked up on every visit to Sunshine Town):\n" .. (#rows > 0 and table.concat(rows, "\n") or "no Gear Goals picks")
+	end, 60)
+	buttonRow(b, "Check the market now (goes to Sunshine Town and looks)", nil, function()
+		M.side.mkCheckReq = true
+		saveState()
+		M.running = true
+	end)
 
 	local s = card(R, "Sell On The Market", "S")
 	optToggle(s, "List items on the market (instead of selling them to the shop)", "mkSell")
@@ -6287,7 +6334,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22e loaded")
+log("AUTO v22f loaded")
 
 end, debug.traceback)
 if not __ok then
