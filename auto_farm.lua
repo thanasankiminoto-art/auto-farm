@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794988876
+--@@BUILD 1794988933
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3400,10 +3400,13 @@ M.towerPrizeTick = function()
 	if not w then M.side.towerPrizeGoal = nil return false end
 	if os.time() < (M.side.prizeNext or 0) then return false end
 	if not M.towerFloor() then return false end -- the Tower's map isn't open yet
-	M.side.prizeNext = os.time() + 1200 -- a failed run tries again in 20 min
+	-- the goal is still set = the last run ended below the prize floor: wait longer each time (20 min, 40, 80 ... up to 12 h)
+	local sd = M.side
+	if sd.towerPrizeGoal then sd.prizeFails = (sd.prizeFails or 0) + 1 else sd.prizeFails = 0 end
+	sd.prizeNext = os.time() + math.min(12 * 3600, 1200 * 2 ^ (sd.prizeFails or 0))
 	M.side.towerPrizeGoal = w.fl
 	saveState()
-	log(("tower: going for %s (Gear Goals) - prize of floor %d"):format(w.name, w.fl))
+	log(("tower: going for %s (Gear Goals) - prize of floor %d (best so far %d%s)"):format(w.name, w.fl, sd.towerBest or 0, (sd.prizeFails or 0) > 0 and (", try " .. (sd.prizeFails + 1)) or ""))
 	enterDungeon("TOWER:Tower")
 	return true
 end
@@ -4899,7 +4902,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22l"
+M.VERSION = "v22m"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6447,7 +6450,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22l loaded")
+log("AUTO v22m loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
