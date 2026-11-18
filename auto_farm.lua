@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794984521
+--@@BUILD 1794984892
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3586,6 +3586,7 @@ M.gearFree = function(sl, copy)
 		if spare then break end
 	end
 	if not spare then return end
+	log(("gear goal: %s goes in for a moment so %s can be upgraded"):format(spare.Name, name))
 	local before = {}
 	for k in pairs(inv) do before[k] = true end
 	task.wait(math.max(0, (M._lastEquipAt or 0) + 2.5 - os.clock()))
@@ -3667,7 +3668,8 @@ M.gearUpgrade = function(sl, copy, target)
 	end
 	status("Upgrading " .. it.Name)
 	local myLevel = d.Data.Leveling.Level or 1
-	local steps, from = 0, it.Leveling.Level
+	local steps, from = 0, (it.Leveling and it.Leveling.Level) or 1
+	local okUp, errUp = pcall(function()
 	while (it.Leveling.Level or 1) < target and steps < 40 do
 		local cname, camt, coins = M.upgradeCost(it)
 		local have = (d.Data.Inventory.Materials or {})[cname or ""] or 0
@@ -3682,8 +3684,12 @@ M.gearUpgrade = function(sl, copy, target)
 		end
 		steps += 1
 	end
-	if it.Leveling.Level > from then log(("gear goal: %s Lv %d -> %d"):format(it.Name, from, it.Leveling.Level)) end
-	if (it.Leveling.Level or 1) <= myLevel then M.gearWear(sl, k, it) end
+	end)
+	if not okUp then log("ERR upgrading " .. tostring(it.Name) .. ": " .. tostring(errUp)) end
+	local lv = (it.Leveling and it.Leveling.Level) or 1
+	if lv > from then log(("gear goal: %s Lv %d -> %d"):format(it.Name, from, lv)) end
+	-- always put it back in the hand, even when the upgrade failed (the spare must not stay there)
+	if lv <= myLevel then M.gearWear(sl, k, it) end
 end
 
 -- look at every slot; upgrade / wear what can be done now, list what has to be farmed
@@ -4599,7 +4605,10 @@ local function scheduler()
 			if M.tpTourTick() then return end
 			pcall(M.gearMeasure) -- count what the last run gave before upgrades spend it
 			M.upgradeGear()
-			pcall(M.gearTick)
+			do
+				local ok, err = pcall(M.gearTick)
+				if not ok then log("ERR gear goals: " .. tostring(err)) end
+			end
 			pcall(M.learnDrops)
 			pcall(M.learnQuests)
 			M.craftBetter()
@@ -4849,7 +4858,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22h"
+M.VERSION = "v22i"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6390,7 +6399,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22h loaded")
+log("AUTO v22i loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
