@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794994229
+--@@BUILD 1794995078
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23a"
+M.VERSION = "v23b"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6622,7 +6622,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v23a loaded")
+log("AUTO v23b loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6720,6 +6720,23 @@ M.statusCard = function()
 	local pct = (lv.ExperienceCap or 0) > 0 and math.floor((lv.Experience or 0) / lv.ExperienceCap * 100) or 0
 	local fields = {
 		{ name = "Level", value = ("**%s** (%d%%)"):format(tostring(lv.Level), pct), inline = true },
+		{ name = "EXP", value = (function()
+			local cur, cap = tonumber(lv.Experience) or 0, tonumber(lv.ExperienceCap) or 0
+			local function n(x) return tostring(math.floor(x)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "") end
+			return ("%s / %s\n**%s** to Lv %d"):format(n(cur), n(cap), n(math.max(0, cap - cur)), (lv.Level or 0) + 1)
+		end)(), inline = true },
+		{ name = "Next map", value = (function()
+			local f = floorInfo and floorInfo()
+			if not f or not f.nextN or not f.needLevel then
+				-- inside a dungeon / Tower there is no map: the first map you can't enter yet
+				for _, x in ipairs(M.floorList()) do
+					if not x.ok then f = { nextName = x.name, needLevel = x.need } break end
+				end
+				if not f then return "all maps open" end
+			end
+			if (lv.Level or 0) >= f.needLevel then return ("%s: open (needs Lv %d)"):format(tostring(f.nextName), f.needLevel) end
+			return ("%s: needs **Lv %d** (%d more)"):format(tostring(f.nextName), f.needLevel, f.needLevel - (lv.Level or 0))
+		end)(), inline = true },
 		{ name = "Coins", value = tostring(d.Data.Currencies.Coins or 0), inline = true },
 		{ name = "Power", value = tostring(math.floor(M.powerScore and M.powerScore() or 0)), inline = true },
 		{ name = "Where", value = tostring(place) .. tw, inline = true },
