@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794993781
+--@@BUILD 1794993935
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22x"
+M.VERSION = "v22y"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6577,7 +6577,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22x loaded")
+log("AUTO v22y loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6679,13 +6679,26 @@ M.statusCard = function()
 	}
 end
 M.discordStatus = function()
+	-- an account can have its own channel for the card: auto_farm_webhook_card_<UserId>.txt (alerts stay on the main one)
 	local url = M.webhookUrl()
+	pcall(function()
+		local f = "auto_farm_webhook_card_" .. lp.UserId .. ".txt"
+		if isfile(f) then local u = readfile(f):gsub("%s", "") if u ~= "" then url = u end end
+	end)
 	local req = (syn and syn.request) or http_request or request or (fluxus and fluxus.request)
 	if not url or not req or M.opt.discordCard == false then return end
 	local card = M.statusCard()
 	if not card then return end
 	local idFile = "auto_farm_discord_msg_" .. lp.UserId .. ".txt"
-	local id = isfile(idFile) and readfile(idFile):gsub("%s", "") or ""
+	local saved = isfile(idFile) and readfile(idFile):gsub("%s", "") or ""
+	local sUrl, id = saved:match("^(.-)|(%d+)$")
+	if not id then sUrl, id = M.webhookUrl(), saved:match("^(%d+)$") end -- older file: id only, posted on the main webhook
+	id = id or ""
+	if id ~= "" and sUrl and sUrl ~= url then
+		-- the card moved to another channel: remove the old one
+		pcall(function() req({ Url = sUrl .. "/messages/" .. id, Method = "DELETE" }) end)
+		id = ""
+	end
 	local body = Http:JSONEncode(card)
 	if id ~= "" then
 		local ok, r = pcall(function() return req({ Url = url .. "/messages/" .. id, Method = "PATCH", Headers = { ["Content-Type"] = "application/json" }, Body = body }) end)
@@ -6695,7 +6708,7 @@ M.discordStatus = function()
 	local ok, r = pcall(function() return req({ Url = url .. "?wait=true", Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body }) end)
 	if ok and r and r.Body then
 		local ok2, j = pcall(function() return Http:JSONDecode(r.Body) end)
-		if ok2 and j and j.id then pcall(writefile, idFile, tostring(j.id)) end
+		if ok2 and j and j.id then pcall(writefile, idFile, url .. "|" .. tostring(j.id)) end
 	end
 end
 M._hbStarted = M._hbStarted or false
