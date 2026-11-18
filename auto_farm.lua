@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794990379
+--@@BUILD 1794991039
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1996,6 +1996,10 @@ local function runDungeon()
 				if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end -- old "601" style value
 				-- prize run: every floor takes its time (thanasan49 needed about 8 h for 600 floors), so the pace says nothing.
 				-- What decides it is the bosses: one that holds you up for more than 8 min means you aren't strong enough yet.
+				if M.side.towerPrizeGoal and not M._goalHit and M.powerScore() < M.towerNeed(M.side.towerPrizeGoal) then
+					M._goalHit = true
+					log(("tower: power %d is below the %d needed for floor %d - leaving"):format(math.floor(M.powerScore()), M.towerNeed(M.side.towerPrizeGoal), M.side.towerPrizeGoal))
+				end
 				if M.side.towerPrizeGoal and not M._goalHit then
 					if key ~= M._prizeKey then M._prizeKey, M._prizeFloorT = key, os.clock() end
 					if ftype == "Boss" and os.clock() - (M._prizeFloorT or os.clock()) > 480 then
@@ -3423,6 +3427,12 @@ M.towerPrizeWant = function()
 	end
 	return best
 end
+-- what thanasan49 had when it climbed floors 1-601 in one go (Nov 17): Tenrai Axe Lv84 x2 + Orian's Platemail Lv76, about Lv 84.
+-- A prize floor needs that much power scaled by the floor: half of it at floor 0, all of it at floor 600.
+M.TOWER_REF = { power = 15049, floor = 600 }
+M.towerNeed = function(fl)
+	return math.floor(M.TOWER_REF.power * (0.5 + 0.5 * math.min(1, fl / M.TOWER_REF.floor)))
+end
 M.towerPrizeTick = function()
 	if inDungeon() or M.sellTrip or M.onTrip() or M.side.questTrip then return false end
 	local w = M.towerPrizeWant()
@@ -3430,7 +3440,13 @@ M.towerPrizeTick = function()
 	if M.side.prizeTry and M.side.prizeTry.fl >= w.fl then M.side.prizeTry = nil end
 	if os.time() < (M.side.prizeNext or 0) then return false end
 	if not M.towerFloor() then return false end -- the Tower's map isn't open yet
-	-- only go when it can be done: a run that died below the prize floor is tried again once you are clearly stronger
+	-- only go when it can be done: as strong as thanasan49 was when it climbed that high
+	local need, have = M.towerNeed(w.fl), M.powerScore()
+	if have < need then
+		M.prizeState = ("%s: Tower floor %d needs power %d (what thanasan49 had for it), you have %d - not yet"):format(w.name, w.fl, need, math.floor(have))
+		return false
+	end
+	-- a run that died below the prize floor is tried again once you are clearly stronger
 	local sd = M.side
 	local d = data()
 	local lv = d and d.Data.Leveling.Level or 0
@@ -4942,7 +4958,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22p"
+M.VERSION = "v22q"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6491,7 +6507,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22p loaded")
+log("AUTO v22q loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
