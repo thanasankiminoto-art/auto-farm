@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794991039
+--@@BUILD 1794991494
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1967,7 +1967,7 @@ local function runDungeon()
 	if not inst then status("Dungeon data not found") return end
 	M._dungeonRunning = true
 	M._visitStart, M._goalHit = nil, nil
-	M._prizeKey, M._prizeFloorT = nil, nil
+	M._prizeKey, M._prizeFloorT, M._prizeBoss = nil, nil, nil
 	M.pickFortune(inst)
 	local idle = 0
 	local tower = inTower()
@@ -1996,12 +1996,29 @@ local function runDungeon()
 				if (M.side.towerGoal or 0) % 10 == 1 then M.side.towerGoal = M.side.towerGoal - 1 end -- old "601" style value
 				-- prize run: every floor takes its time (thanasan49 needed about 8 h for 600 floors), so the pace says nothing.
 				-- What decides it is the bosses: one that holds you up for more than 8 min means you aren't strong enough yet.
-				if M.side.towerPrizeGoal and not M._goalHit and M.powerScore() < M.towerNeed(M.side.towerPrizeGoal) then
-					M._goalHit = true
-					log(("tower: power %d is below the %d needed for floor %d - leaving"):format(math.floor(M.powerScore()), M.towerNeed(M.side.towerPrizeGoal), M.side.towerPrizeGoal))
-				end
 				if M.side.towerPrizeGoal and not M._goalHit then
-					if key ~= M._prizeKey then M._prizeKey, M._prizeFloorT = key, os.clock() end
+					if key ~= M._prizeKey then
+						-- a boss floor just ended: how long did it take? (thanasan49 needed ~100 s a boss on its 601-floor run)
+						if M._prizeKey and M._prizeKey:sub(1, 4) == "Boss" and M._prizeFloorT then
+							M._prizeBoss = M._prizeBoss or {}
+							table.insert(M._prizeBoss, os.clock() - M._prizeFloorT)
+							local sd = M.side
+							if not sd.towerProven and #M._prizeBoss >= 5 then
+								local t = table.clone(M._prizeBoss)
+								table.sort(t)
+								local med = t[3]
+								if med <= 155 then
+									sd.towerProven = { lv = (data() and data().Data.Leveling.Level) or 0, med = math.floor(med) }
+									log(("tower: 5 bosses down, about %d s each (thanasan49: ~100 s) - strong enough, going on to floor %d"):format(med, sd.towerPrizeGoal))
+								else
+									M._goalHit = true
+									log(("tower: 5 bosses took about %d s each (thanasan49: ~100 s) - not strong enough yet, stopping"):format(med))
+								end
+								saveState()
+							end
+						end
+						M._prizeKey, M._prizeFloorT = key, os.clock()
+					end
 					if ftype == "Boss" and os.clock() - (M._prizeFloorT or os.clock()) > 480 then
 						M._goalHit = true
 						log(("tower: the boss of floor %d takes over 8 min - not strong enough for floor %d yet, stopping"):format(cur, M.side.towerPrizeGoal))
@@ -3440,12 +3457,6 @@ M.towerPrizeTick = function()
 	if M.side.prizeTry and M.side.prizeTry.fl >= w.fl then M.side.prizeTry = nil end
 	if os.time() < (M.side.prizeNext or 0) then return false end
 	if not M.towerFloor() then return false end -- the Tower's map isn't open yet
-	-- only go when it can be done: as strong as thanasan49 was when it climbed that high
-	local need, have = M.towerNeed(w.fl), M.powerScore()
-	if have < need then
-		M.prizeState = ("%s: Tower floor %d needs power %d (what thanasan49 had for it), you have %d - not yet"):format(w.name, w.fl, need, math.floor(have))
-		return false
-	end
 	-- a run that died below the prize floor is tried again once you are clearly stronger
 	local sd = M.side
 	local d = data()
@@ -4958,7 +4969,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22q"
+M.VERSION = "v22r"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6507,7 +6518,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22q loaded")
+log("AUTO v22r loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
