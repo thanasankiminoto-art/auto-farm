@@ -787,6 +787,10 @@ local function turnInAll()
 			else
 				M.turnedIn += 1
 				log("turned in " .. q.ID)
+				if q.Repeatable or tostring(q.ID):find("Daily") or tostring(q.ID):find("DAILY") or q.Type == "RandomKill" then
+					M.side.dailyDone = M.side.dailyDone or {}
+					M.side.dailyDone[q.ID] = os.time() -- the game keeps no client-side timer: remember when it comes back
+				end
 			end
 		end
 	end
@@ -3819,7 +3823,7 @@ M.questTripHold = function()
 end
 -- story quests left on a lower map (not taken, or dropped when you went home): go there, take them, do them
 M.oldQuestTick = function()
-	if M.opt.oldQuests == false or not M.on.accept then return false end
+	if (M.opt.oldQuests == false and M.opt.dailyTour == false) or not M.on.accept then return false end
 	local sd, now = M.side, os.time()
 	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) then return false end
 	if M.dailyNext and M.dailyNext() then return false end
@@ -3839,17 +3843,25 @@ M.oldQuestTick = function()
 	for _, f in ipairs(M.floorList()) do
 		local list = book[tostring(f.n)]
 		if f.ok and list and f.n ~= cur then
-			local n = 0
+			local n, nd = 0, 0
+			sd.dailyDone, sd.dailyTry = sd.dailyDone or {}, sd.dailyTry or {}
+			local due = {}
 			for id, e in pairs(list) do
-				local isDaily = tostring(id):find("Daily") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
-				if not isDaily and not done[id] and not prog[id] and now >= (sd.oldSkip[id] or 0) then n += 1 end
+				local isDaily = tostring(id):find("Daily") or tostring(id):find("DAILY") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
+				if not isDaily and M.opt.oldQuests ~= false and not done[id] and not prog[id] and now >= (sd.oldSkip[id] or 0) then n += 1 end
+				-- a daily comes back 24 h after it was handed in; one that could not be taken waits 6 h before the next try
+				if isDaily and M.opt.dailyTour ~= false and not prog[id] and now - (sd.dailyDone[id] or 0) > 86400 and now - (sd.dailyTry[id] or 0) > 6 * 3600 then
+					nd += 1
+					due[#due + 1] = id
+				end
 			end
-			if n > 0 then
+			if n + nd > 0 then
+				for _, id in ipairs(due) do sd.dailyTry[id] = now end
 				sd.oldQuestNext = now + 300
 				sd.questTrip, sd.questFloor, sd.questMob, sd.questSum, sd.questMoved = now, f.n, nil, nil, now
 				M.saveState()
-				log(("%d old quest(s) left on map %d (%s) - going there to do them"):format(n, f.n, tostring(f.name)))
-				if M.travelTo(f.n, "old quests") then task.wait(20) return true end
+				log(("map %d (%s): %d old quest(s), %d daily quest(s) to do - going there"):format(f.n, tostring(f.name), n, nd))
+				if M.travelTo(f.n, nd > 0 and n == 0 and "daily quests" or "old quests") then task.wait(20) return true end
 				M.questTripEnd("could not travel")
 				return false
 			end
@@ -4325,7 +4337,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v21v"
+M.VERSION = "v21w"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -4796,6 +4808,8 @@ do
 	funcToggle(b, "turnin", "Turn in finished quests")
 	if M.opt.oldQuests == nil then M.opt.oldQuests = true end
 	optToggle(b, "Go back for quests left on lower maps", "oldQuests")
+	if M.opt.dailyTour == nil then M.opt.dailyTour = true end
+	optToggle(b, "Daily quests on every map (once a day each)", "dailyTour")
 	optToggle(b, "Skip failed quests 30 min", "longSkip")
 	textRow(b, "One quest at a time: finish it, hand it in, take new ones, then the next.")
 	local t = card(L, "Teleports", "T")
@@ -5751,7 +5765,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v21v loaded")
+log("AUTO v21w loaded")
 
 end, debug.traceback)
 if not __ok then
