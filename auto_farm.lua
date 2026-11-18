@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795009836
+--@@BUILD 1795015453
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3757,6 +3757,40 @@ M.gearSources = function(itemName)
 	end)
 	return out
 end
+-- v23f: one honest line per item for the "How to get it" picker: what the script itself can do, and what it can't
+M.howToGet = function(name)
+	if not name then return nil end
+	local src = M.gearSources(name)
+	local first, farmS, other = nil, nil, {}
+	for _, x in ipairs(src) do
+		if x.kind == "tower" then
+			local fl = M.TOWER_PRIZES[name]
+			first = first or { farm = ("Tower prize: climb to floor %d (when strong enough)"):format(fl), short = ("Tower floor %d"):format(fl) }
+		elseif x.kind == "egg" then
+			local efl, e = M.eggFor(name)
+			local en = tostring(e and e.name or "?")
+			if not en:lower():find("egg$") then en = en .. " egg" end
+			first = first or { farm = ("Roll the %s (map %d) with Coins"):format(en, efl or 0), short = "Roll the egg" }
+		elseif x.farm then
+			farmS = farmS or x
+		else
+			other[#other + 1] = x.label
+		end
+	end
+	if not first and farmS then
+		local lbl = farmS.label:gsub("^Monster ", ""):gsub(" %(.*%)$", "")
+		first = { farm = "Farm it: " .. lbl .. (farmS.ok and "" or " (map locked for now)"), short = "Farm it" }
+	end
+	local h = { farm = first and first.farm, farmShort = first and first.short }
+	if first then
+		h.note = #other > 0 and ("Also from: " .. table.concat(other, "; ") .. " (not done by the script; Bleeter Bits / Robux are never spent).") or ""
+	elseif #other > 0 then
+		h.note = '<font color="#e0b040">The script can\'t farm this one: it only comes from ' .. table.concat(other, "; ") .. '. Bleeter Bits / Robux are never spent, so the market is the only way.</font>'
+	else
+		h.note = '<font color="#d65656">No known way to get it in the game (event / removed item?). Only the market.</font>'
+	end
+	return h
+end
 
 -- every copy you own of an item: worn ones first if equal level
 M.gearCopies = function(cls, name)
@@ -5093,7 +5127,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23e"
+M.VERSION = "v23f"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5978,24 +6012,27 @@ do
 			return ("%s: %s"):format(sl.title, hl(cfg and cfg.name or "nothing picked"))
 		end)
 		dropdownRow(b, "How to get it", function()
-			if sl.flat then -- pets / mounts: a Tower prize, a map's egg, or something else - say which for THIS pick
-				local cfg = M.gearCfg()[sl.id]
-				local nm = cfg and cfg.name
-				local tf = nm and M.TOWER_PRIZES[nm]
-				if tf then
-					return { { "farm", ("Tower prize: climb to floor %d (when strong enough)"):format(tf) }, { "buy", "Buy on the market (no Tower)" }, { "both", ("Tower floor %d, and buy if it's on sale"):format(tf) } }
-				end
-				local efl, e = nil, nil
-				if nm then efl, e = M.eggFor(nm) end
-				if efl then
-					return { { "farm", ("Roll the %s egg (map %d) with Coins"):format(tostring(e.name), efl) }, { "buy", "Buy on the market (no rolls)" }, { "both", "Roll the egg, and buy if it's on sale" } }
-				end
-				return { { "farm", nm and "Not in a Tower prize or egg - wait for it" or "Pick a pet / mount above first" }, { "buy", "Buy on the market" }, { "both", "Buy on the market" } }
+			local cfg = M.gearCfg()[sl.id]
+			local h = M.howToGet(cfg and cfg.name)
+			if not h then return { { "farm", "Pick an item above first" }, { "buy", "Buy on the market" } } end
+			if not h.farm then -- v23f: nothing the script can farm (premium box / event): the market is the only way
+				return { { "buy", "Buy on the market (Sunshine Town)" }, { "farm", "Off - don't look for it" } }
 			end
-			return { { "farm", "Farm until it drops" }, { "buy", "Buy on the market" }, { "both", "Farm, and buy if it's on sale" } }
+			return { { "farm", h.farm }, { "buy", "Buy on the market only" }, { "both", h.farmShort .. ", and buy if it's on sale" } }
 		end,
-			function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.get or "farm" end,
+			function()
+				local cfg = M.gearCfg()[sl.id]
+				local g = cfg and cfg.get or "farm"
+				local h = M.howToGet(cfg and cfg.name)
+				if h and not h.farm and g == "both" then g = "buy" end
+				return g
+			end,
 			function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].get = v end)
+		textRow(b, function()
+			local cfg = M.gearCfg()[sl.id]
+			local h = M.howToGet(cfg and cfg.name)
+			return h and h.note or ""
+		end, 30)
 		numRow(b, "Max price (0 = no limit)", function() local cfg = M.gearCfg()[sl.id] return cfg and cfg.maxPrice or 0 end,
 			function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].maxPrice = v end)
 	end
@@ -6269,7 +6306,7 @@ do
 				local fl = s.floor and (" - " .. (({ "Sunshine Town", "Flywood Forest", "Silent Snowfields", "Desert of Death", "Lotus Lands", "Fish Funland" })[s.floor] or ("floor " .. s.floor))) or ""
 				t[#t + 1] = (s.ok and "" or '<font color="#7d857f">[locked] </font>') .. s.label .. fl
 			end
-			return "Drops from: " .. table.concat(t, "; ")
+			return (sl.flat and "Comes from: " or "Drops from: ") .. table.concat(t, "; ")
 		end, 30)
 		-- target level
 		if not sl.flat then sliderRow(b, "Upgrade to level (0 = your level)", 0, 120, 1, function() local c = cfg() return c and c.target or 0 end, function(v)
