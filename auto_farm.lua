@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795008519
+--@@BUILD 1795008831
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3519,7 +3519,7 @@ M.towerPrizeWant = function()
 	for _, id in ipairs({ "pet", "mount" }) do
 		local cfg = G[id]
 		local cls = id == "pet" and "Companions" or "Mounts"
-		local fl = cfg and cfg.name and M.TOWER_PRIZES[cfg.name]
+		local fl = cfg and cfg.name and cfg.get ~= "buy" and M.TOWER_PRIZES[cfg.name] -- v23d: "buy only" = no Tower climb
 		if fl and #M.gearCopies(cls, cfg.name) == 0 and (not best or fl < best.fl) then best = { fl = fl, name = cfg.name } end
 	end
 	return best
@@ -5073,7 +5073,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23c"
+M.VERSION = "v23d"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5958,8 +5958,19 @@ do
 			return ("%s: %s"):format(sl.title, hl(cfg and cfg.name or "nothing picked"))
 		end)
 		dropdownRow(b, "How to get it", function()
-			if sl.flat then -- pets / mounts come from a map's egg, not from drops
-				return { { "farm", "Roll the egg with Coins" }, { "buy", "Buy on the market" }, { "both", "Roll the egg, and buy if it's on sale" } }
+			if sl.flat then -- pets / mounts: a Tower prize, a map's egg, or something else - say which for THIS pick
+				local cfg = M.gearCfg()[sl.id]
+				local nm = cfg and cfg.name
+				local tf = nm and M.TOWER_PRIZES[nm]
+				if tf then
+					return { { "farm", ("Tower prize: climb to floor %d (when strong enough)"):format(tf) }, { "buy", "Buy on the market (no Tower)" }, { "both", ("Tower floor %d, and buy if it's on sale"):format(tf) } }
+				end
+				local efl, e = nil, nil
+				if nm then efl, e = M.eggFor(nm) end
+				if efl then
+					return { { "farm", ("Roll the %s egg (map %d) with Coins"):format(tostring(e.name), efl) }, { "buy", "Buy on the market (no rolls)" }, { "both", "Roll the egg, and buy if it's on sale" } }
+				end
+				return { { "farm", nm and "Not in a Tower prize or egg - wait for it" or "Pick a pet / mount above first" }, { "buy", "Buy on the market" }, { "both", "Buy on the market" } }
 			end
 			return { { "farm", "Farm until it drops" }, { "buy", "Buy on the market" }, { "both", "Farm, and buy if it's on sale" } }
 		end,
