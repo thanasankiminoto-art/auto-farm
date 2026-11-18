@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794994086
+--@@BUILD 1794994229
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5021,7 +5021,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22z"
+M.VERSION = "v23a"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6622,7 +6622,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22z loaded")
+log("AUTO v23a loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
@@ -6696,7 +6696,24 @@ M.statusCard = function()
 	for _, sl in ipairs(M.GEAR_SLOTS) do
 		local cfg = G[sl.id]
 		if cfg and cfg.name then
-			goals[#goals + 1] = ("%s: %s - %s"):format(sl.title:gsub(" %(.-%)", ""), cfg.name, tostring((M.gearState or {})[sl.id] or "-"))
+			-- the level of the copy you own (best one), and how high it is meant to go
+			local copies = M.gearCopies(sl.cls, cfg.name)
+			local lvTxt
+			if #copies == 0 then
+				lvTxt = "not owned yet"
+			elseif sl.flat then
+				local x = copies[1].item
+				lvTxt = ("owned%s%s"):format(x.Variant and x.Variant ~= "Base" and (" " .. x.Variant) or "", copies[1].where == "worn" and ", in use" or "")
+			else
+				-- the second weapon slot shows the second copy when both hands want the same weapon
+				local idx = (sl.id == "w2" and G.w1 and G.w1.name == cfg.name and copies[2]) and 2 or 1
+				local c = copies[idx]
+				local l = (c.item.Leveling and c.item.Leveling.Level) or 1
+				local target = (tonumber(cfg.target) or 0) > 0 and math.min(tonumber(cfg.target), lv.Level or 1) or (lv.Level or 1)
+				lvTxt = ("**Lv %d** / %d%s%s"):format(l, target, (tonumber(cfg.target) or 0) > (lv.Level or 1) and (" (goal " .. cfg.target .. ")") or "", c.where ~= "bag" and ", in use" or ", in bag")
+			end
+			local st = (M.gearState or {})[sl.id]
+			goals[#goals + 1] = ("%s: %s - %s%s"):format(sl.title:gsub(" %(.-%)", ""), cfg.name, lvTxt, st and (" (" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "") .. ")") or "")
 		end
 	end
 	local mode = M.getMode and M.getMode() or "?"
