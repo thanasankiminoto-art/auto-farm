@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1794991783
+--@@BUILD 1794992818
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2022,6 +2022,7 @@ local function runDungeon()
 					-- a run only for a Gear Goals prize (pet / mount): its floor is cleared, leave
 					M._goalHit = true
 					log(("tower: floor %d cleared - prize for Gear Goals reached, leaving"):format(cur - 1))
+					pcall(M.towerRefAdd, cur - 1)
 					M.side.towerPrizeGoal = nil
 					saveState()
 				elseif cur > (M.side.towerGoal or 600) and M.side.towerRepeat and not M._goalHit then
@@ -3441,6 +3442,28 @@ end
 -- what thanasan49 had when it climbed floors 1-601 in one go (Nov 17): Tenrai Axe Lv84 x2 + Orian's Platemail Lv76, about Lv 84.
 -- A prize floor needs that much power scaled by the floor: half of it at floor 0, all of it at floor 600.
 M.TOWER_REF = { power = 15049, floor = 600 }
+-- shared record of Tower climbs that worked (every account on this PC): floor reached, power, level
+M.towerRefs = function()
+	local ok, t = pcall(function() return Http:JSONDecode(readfile("auto_farm_towerref.json")) end)
+	t = ok and type(t) == "table" and t or {}
+	if #t == 0 then t[1] = { floor = 601, power = 15049, level = 84, who = "thanasan49" } end -- Nov 17: Tenrai Axe Lv84 x2 + Orian Lv76
+	return t
+end
+M.towerRefAdd = function(floor)
+	local t = M.towerRefs()
+	local d = data()
+	t[#t + 1] = { floor = floor, power = math.floor(M.powerScore()), level = d and d.Data.Leveling.Level or 0, who = lp.Name, at = os.time() }
+	pcall(function() writefile("auto_farm_towerref.json", Http:JSONEncode(t)) end)
+	log(("tower: recorded - %s cleared floor %d with power %d (Lv %d)"):format(lp.Name, floor, t[#t].power, t[#t].level))
+end
+-- lowest power that is known to have cleared at least this floor
+M.towerRefFor = function(fl)
+	local best
+	for _, r in ipairs(M.towerRefs()) do
+		if (r.floor or 0) >= fl and (not best or r.power < best.power) then best = r end
+	end
+	return best
+end
 M.towerNeed = function(fl)
 	return math.floor(M.TOWER_REF.power * (0.5 + 0.5 * math.min(1, fl / M.TOWER_REF.floor)))
 end
@@ -3456,6 +3479,8 @@ M.towerPrizeTick = function()
 	local d = data()
 	local lv = d and d.Data.Leveling.Level or 0
 	local t = sd.prizeTry
+	local ref = M.towerRefFor(w.fl)
+	if t and ref and M.powerScore() >= ref.power then t = nil end -- someone with this much power already cleared it: go
 	if t and t.fl < w.fl then
 		local sc = M.powerScore()
 		if lv < (t.lv or 0) + 3 and sc < (t.sc or 0) * 1.10 then
@@ -4963,7 +4988,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v22s"
+M.VERSION = "v22t"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6250,6 +6275,13 @@ do
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
 	textRow(h, function() return M.prizeState or "Tower prizes: nothing to fetch" end)
+	textRow(h, function()
+		local rows = {}
+		local refs = M.towerRefs()
+		table.sort(refs, function(a, b) return (a.floor or 0) < (b.floor or 0) end)
+		for _, r in ipairs(refs) do rows[#rows + 1] = ("floor %s: power %s, Lv %s (%s)"):format(hl(r.floor), hl(r.power), tostring(r.level), tostring(r.who)) end
+		return ("Tower climbs that worked (all accounts on this PC) - your power now %s:\n"):format(hl(math.floor(M.powerScore()))) .. table.concat(rows, "\n")
+	end, 50)
 	sliderRow(h, "Gear runs in a row (0 = until done)", 0, 100, 1, function() return tonumber(M.opt.gearRuns) or 10 end, function(v) M.opt.gearRuns = v end)
 	textRow(h, function()
 		local st = M.side.gearStreak or 0
@@ -6512,7 +6544,7 @@ task.spawn(function()
 	end
 end)
 task.delay(6, function() if M.alive then pcall(M.goHome) end end)
-log("AUTO v22s loaded")
+log("AUTO v22t loaded")
 -- count server changes (= teleports) to see how often the character travels
 do
 	local sd = M.side
