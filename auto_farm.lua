@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795069396
+--@@BUILD 1795075339
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4383,7 +4383,8 @@ M.chestTick = function()
 		return false
 	end
 	pcall(function() ch:FireServer("Open") end)
-	task.wait(2)
+	M.dismissBox(6)
+	task.wait(1)
 	local got = #M.gearCopies(want.cls, want.name) > 0
 	M.side.chestRolls = (M.side.chestRolls or 0) + 1
 	M.chestState = got and (want.name .. ": got it from the Skeleton Chest") or ("%s: %d Skeleton Chest rolls so far"):format(want.name, M.side.chestRolls)
@@ -4446,7 +4447,8 @@ M.eggTick = function()
 		repeat task.wait(0.3) until (d.Data.Currencies.Coins or 0) < coins or os.clock() - t0 > 6
 		if (d.Data.Currencies.Coins or 0) >= coins then log("egg: the game took no coins - stopping") break end
 		rolls += n
-		task.wait(1.5)
+		M.dismissBox(6) -- the result screen waits for a key press
+		task.wait(1)
 	end
 	local got = #M.gearCopies(want.cls, want.name) > 0
 	sd.eggRolls = (sd.eggRolls or 0) + rolls
@@ -4892,12 +4894,41 @@ M.gearFarmKeys = function()
 	return {}
 end
 
+-- v23k: after an egg / box roll the game shows the result screen and waits for a key ("press to continue");
+-- until then the character can't act. Answer it the way the game listens: its own input event, else a real Enter.
+M.dismissBox = function(waitFor)
+	local pg = lp:FindFirstChild("PlayerGui")
+	local fr = pg and pg:FindFirstChild("FullGui")
+	fr = fr and fr:FindFirstChild("BoxOpeningFrame")
+	if not fr then return false end
+	local t0 = os.clock()
+	while waitFor and os.clock() - t0 < waitFor and not (fr.Visible and fr:FindFirstChild("TextLabel") and fr.TextLabel.Visible) do task.wait(0.2) end
+	if not (fr.Visible and fr:FindFirstChild("TextLabel") and fr.TextLabel.Visible) then return false end
+	pcall(function()
+		local mod = game:GetService("ReplicatedStorage").Modules.DeviceInputController
+		local ev = mod:FindFirstChildOfClass("BindableEvent") -- the first one the module makes is its "Input" event
+		if ev then ev:Fire(Enum.KeyCode.Return, false) end
+	end)
+	task.wait(0.8)
+	if fr.Visible and fr.TextLabel.Visible then
+		pcall(function()
+			local vim = game:GetService("VirtualInputManager")
+			vim:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+			task.wait(0.05)
+			vim:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+		end)
+		task.wait(0.8)
+	end
+	return true
+end
+
 local function scheduler()
 	M.schedRunning = true
 	setNoclip(true)
 	local unlockDone = false
 	while M.alive and anyOn() do
 		task.wait(0.1) -- never spin without yielding (a tight loop here froze the game once)
+		if os.clock() > (M._boxCheck or 0) then M._boxCheck = os.clock() + 3 pcall(M.dismissBox) end -- a result screen left open (rolled by hand, too)
 		local ok, err = pcall(function()
 			if not char() then
 				status("Waiting for respawn...")
@@ -5203,7 +5234,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23j"
+M.VERSION = "v23k"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
