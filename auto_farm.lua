@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795068839
+--@@BUILD 1795069249
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -923,7 +923,7 @@ local function doKill(q)
 			sd.questTried = sd.questTried or {}
 			local okFloor = false
 			for _, f in ipairs(M.floorList()) do if f.n == mf and f.ok then okFloor = true end end
-			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and not M.onTrip() and not sd.questTrip and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
+			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and not M.onTrip() and not M.gearHold() and not sd.questTrip and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
 				sd.questTried[q.MobToKill] = os.time()
 				sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = os.time(), q.MobToKill, mf, nil, os.time()
 				M.saveState()
@@ -1788,6 +1788,10 @@ local function enterDungeon(name)
 	if not name:find(":") or name:sub(1, 5) == "BOSS:" then
 		local fl = M.instFloor(name)
 		local cur = currentFloor()
+		if M._gearModeOn and (fl or cur) then -- v23i: the map of what upgrade mode farms now (also when it's this map)
+			M.side.gearFarmFloor = fl or cur
+			M.side.gearFarmAt = os.time()
+		end
 		if fl and cur and fl ~= cur then
 			M.side.cataTrip = os.time()
 			M.side.cataName = name
@@ -2878,7 +2882,18 @@ M.dailyGo = function()
 end
 
 -- the home map: a fixed map, or -1 = the highest map you can enter right now
+-- v23i: Upgrade gear mode farming upgrade materials on a lower map: that map is "home" until the gear has caught up.
+-- Bounty, the daily boss tour, a Tower prize run and selling still go out - and come straight back here.
+M.gearHold = function()
+	local sd = M.side
+	if M.gearMode() ~= "upgrade" or not sd.gearModeOn then return nil end
+	local fl = tonumber(sd.gearFarmFloor)
+	if fl and fl > 0 then return fl end
+	return nil
+end
 M.homeTarget = function()
+	local gh = M.gearHold()
+	if gh then return gh end
 	local n = tonumber(M.opt.homeFloor) or 0
 	if n == -1 then
 		local best = 0
@@ -2963,6 +2978,7 @@ end
 
 local function progressTick()
 	if not M.opt.nextFloor or M.sellTrip then return end
+	if M.gearHold and M.gearHold() then return end -- v23i: farming upgrade materials on a lower map
 	-- on a trip (daily boss tour / Tower): don't climb maps from wherever the trip passes through
 	if M.side.towerTrip and os.time() - M.side.towerTrip < 300 then return end
 	if M.side.cataTrip and os.time() - M.side.cataTrip < 300 then return end -- on the way to the Catacombs
@@ -3472,19 +3488,25 @@ M.gearMode = function()
 	return M.opt.gearFirst and "upgrade" or "balanced"
 end
 M.gearModeRun = function()
-	if not (M.gearMode() == "upgrade" and M.gearAny()) then M._gearModeOn = false return false end
+	if not (M.gearMode() == "upgrade" and M.gearAny()) then
+		M._gearModeOn = false
+		if M.side.gearModeOn then M.side.gearModeOn = nil M.side.gearFarmFloor = nil saveState() end
+		return false
+	end
 	M.gearTick()
 	M._gearMatsOnly = true
 	local keys = M.gearFarmKeys()
 	if #keys == 0 then
 		M._gearMatsOnly = false
 		M.gearFarmKeys() -- back to the full list (item hunts) for the normal Priority turn
-		if M._gearModeOn then log("upgrade mode: gear is as high as your level allows - back to normal farming") end
+		if M._gearModeOn or M.side.gearModeOn then log("upgrade mode: gear is as high as your level allows - back to normal farming") end
 		M._gearModeOn = false
+		if M.side.gearModeOn then M.side.gearModeOn = nil M.side.gearFarmFloor = nil saveState() end
 		return false
 	end
 	if not M._gearModeOn then log("upgrade mode: farming " .. tostring(M.gearFarmFor) .. " until the gear catches up with your level") end
 	M._gearModeOn = true
+	if not M.side.gearModeOn then M.side.gearModeOn = true saveState() end
 	M._gearTravel = false
 	M.prio.last.gear = os.time()
 	local ok = M.prioRun("gear", true)
@@ -4258,7 +4280,7 @@ end
 M.oldQuestTick = function()
 	if (M.opt.oldQuests == false and M.opt.dailyTour == false) or not M.on.accept then return false end
 	local sd, now = M.side, os.time()
-	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) then return false end
+	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) or M.gearHold() then return false end
 	if M.dailyNext and M.dailyNext() then return false end
 	local maxQ = 4
 	for _, r in pairs(RC._replicas) do
@@ -4394,7 +4416,7 @@ M.eggTick = function()
 	local cur = currentFloor()
 	local sd = M.side
 	if cur ~= want.fl then
-		if M.onTrip() or sd.questTrip or os.time() < (sd.eggNext or 0) then return false end
+		if M.onTrip() or sd.questTrip or M.gearHold() or os.time() < (sd.eggNext or 0) then return false end
 		if M.dailyNext and M.dailyNext() then return false end
 		local okFloor = false
 		for _, f in ipairs(M.floorList()) do if f.n == want.fl and f.ok then okFloor = true end end
@@ -4672,7 +4694,7 @@ end
 M.mkTripTick = function()
 	if inDungeon() or M.sellTrip or currentFloor() == 1 then return false end
 	local sd = M.side
-	if M.onTrip() or sd.questTrip then return false end
+	if M.onTrip() or sd.questTrip or M.gearHold() then return false end
 	if os.time() < (sd.mkTripNext or 0) and not sd.mkCheckReq then return false end
 	if M.dailyNext and M.dailyNext() and not sd.mkCheckReq then return false end
 	local why = sd.mkCheckReq and "check prices"
@@ -5181,7 +5203,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23h"
+M.VERSION = "v23i"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
