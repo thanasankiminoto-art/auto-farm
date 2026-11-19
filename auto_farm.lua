@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795015811
+--@@BUILD 1795068839
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5181,7 +5181,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23g"
+M.VERSION = "v23h"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5842,10 +5842,13 @@ do
 	textRow(card(L, "Level", "L"), function()
 		local d = data()
 		local lv = d and d.Data.Leveling or {}
-		local f = floorInfo and floorInfo()
-		local nextTxt = ""
-		if f and f.nextN and f.needLevel then
-			nextTxt = (f.level or lv.Level or 0) >= f.needLevel and ("\nNext map %s is open"):format(hl(tostring(f.nextName))) or ("\nNext map %s needs Lv %s"):format(hl(tostring(f.nextName)), hl(f.needLevel))
+		-- v23h: the next map is the first one the account can't enter yet - not the one above where it stands now
+		local nextTxt = "\nAll maps are open"
+		for _, x in ipairs(M.floorList()) do
+			if not x.ok then
+				nextTxt = ("\nNext map %s needs Lv %s"):format(hl(tostring(x.name)), hl(x.need))
+				break
+			end
 		end
 		return ("Level %s  (%s / %s EXP)%s"):format(hl(lv.Level or "?"), hl(lv.Experience or 0), hl(lv.ExperienceCap or "?"), nextTxt)
 	end, 34)
@@ -6900,14 +6903,12 @@ M.statusCard = function()
 			return ("%s / %s\n**%s** to Lv %d"):format(n(cur), n(cap), n(math.max(0, cap - cur)), (lv.Level or 0) + 1)
 		end)(), inline = true },
 		{ name = "Next map", value = (function()
-			local f = floorInfo and floorInfo()
-			if not f or not f.nextN or not f.needLevel then
-				-- inside a dungeon / Tower there is no map: the first map you can't enter yet
-				for _, x in ipairs(M.floorList()) do
-					if not x.ok then f = { nextName = x.name, needLevel = x.need } break end
-				end
-				if not f then return "all maps open" end
+			-- v23h: always the first map the account can't enter yet (standing on map 4 used to show map 5 as "next")
+			local f
+			for _, x in ipairs(M.floorList()) do
+				if not x.ok then f = { nextName = x.name, needLevel = x.need } break end
 			end
+			if not f then return "all maps open" end
 			if (lv.Level or 0) >= f.needLevel then return ("%s: open (needs Lv %d)"):format(tostring(f.nextName), f.needLevel) end
 			return ("%s: needs **Lv %d** (%d more)"):format(tostring(f.nextName), f.needLevel, f.needLevel - (lv.Level or 0))
 		end)(), inline = true },
