@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795110530
+--@@BUILD 1795111771
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4274,7 +4274,7 @@ M.questTripEnd = function(why)
 		if not done[id] and not isDaily then sd.oldSkip[id] = os.time() + 3 * 3600 open += 1 end
 	end
 	log(("quest trip to map %s over (%s)%s"):format(tostring(sd.questFloor), why, open > 0 and (" - %d left there, next try in 3 h"):format(open) or ""))
-	sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = nil, nil, nil, nil, nil
+	sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved, sd.questSeenOpen = nil, nil, nil, nil, nil, nil
 	M.saveState()
 end
 -- a quest of this trip's map is still open (taken, not ready to hand in)
@@ -4308,7 +4308,10 @@ M.questTripHold = function()
 	end
 	if sd.questSum ~= sum then sd.questSum, sd.questMoved = sum, now end
 	sd.questMoved = sd.questMoved or now
-	if open == 0 and now - sd.questTrip > 90 then M.questTripEnd("done") return false end
+	if open > 0 then sd.questSeenOpen = true end
+	-- v23v: "done" only after this trip had quests in hand - a bounty (or anything else) that comes first on arrival
+	-- used to end the trip before a single quest was taken ("over (done) - 1 left there")
+	if open == 0 and now - sd.questTrip > 90 and (sd.questSeenOpen or now - sd.questTrip > 900) then M.questTripEnd("done") return false end
 	if now - sd.questMoved > 600 then M.questTripEnd("no progress for 10 min") return false end
 	return true
 end
@@ -4349,7 +4352,7 @@ M.oldQuestTick = function()
 			if n + nd > 0 then
 				for _, id in ipairs(due) do sd.dailyTry[id] = now end
 				sd.oldQuestNext = now + 300
-				sd.questTrip, sd.questFloor, sd.questMob, sd.questSum, sd.questMoved = now, f.n, nil, nil, now
+				sd.questTrip, sd.questFloor, sd.questMob, sd.questSum, sd.questMoved, sd.questSeenOpen = now, f.n, nil, nil, now, nil
 				M.saveState()
 				log(("map %d (%s): %d old quest(s), %d daily quest(s) to do - going there"):format(f.n, tostring(f.name), n, nd))
 				if M.travelTo(f.n, nd > 0 and n == 0 and "daily quests" or "old quests") then task.wait(20) return true end
@@ -5283,7 +5286,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23u"
+M.VERSION = "v23v"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
