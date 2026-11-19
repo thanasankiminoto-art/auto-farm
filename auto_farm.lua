@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795111771
+--@@BUILD 1795126571
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5286,7 +5286,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23v"
+M.VERSION = "v23w"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6867,7 +6867,12 @@ do
 				if still == "" or tostring(still):find("ClientInitiated") or g.__AutoRejoining then return end
 				g.__AutoRejoining = true
 				pcall(function() appendfile("auto_farm_log_" .. lp.UserId .. ".txt", os.date("%H:%M:%S") .. " disconnected (" .. tostring(msg):sub(1, 80) .. "), rejoining\n") end)
-				task.spawn(function()
+				g.__AutoRejoinLoop()
+			end)
+		end)
+		-- a map change / dungeon teleport that fails leaves the account stuck: send it back to the hub
+		g.__AutoRejoinLoop = function()
+			task.spawn(function()
 					while true do
 						task.wait(15)
 						pcall(function()
@@ -6879,6 +6884,18 @@ do
 						task.wait(45)
 					end
 				end)
+		end
+		pcall(function()
+			game:GetService("TeleportService").TeleportInitFailed:Connect(function(plr, res, msg)
+				if plr ~= lp or g.__AutoRejoining then return end
+				local job = game.JobId
+				pcall(function() appendfile("auto_farm_log_" .. lp.UserId .. ".txt", os.date("%H:%M:%S") .. " teleport failed (" .. tostring(res) .. " " .. tostring(msg):sub(1, 60) .. ")\n") end)
+				task.wait(40)
+				if game.JobId ~= job or g.__AutoRejoining then return end
+				-- the game did not retry by itself: go back to the hub
+				g.__AutoRejoining = true
+				pcall(function() appendfile("auto_farm_log_" .. lp.UserId .. ".txt", os.date("%H:%M:%S") .. " still stuck after a failed teleport, rejoining the hub\n") end)
+				g.__AutoRejoinLoop()
 			end)
 		end)
 	end
