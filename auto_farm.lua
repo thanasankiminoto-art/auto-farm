@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795110108
+--@@BUILD 1795110310
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5280,7 +5280,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23s"
+M.VERSION = "v23t"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5437,6 +5437,7 @@ local function toggleRow(body, label, get, set)
 	paints[#paints + 1] = paint
 	table.insert(conns, row.MouseButton1Click:Connect(function()
 		set(not get())
+		save() -- v23t: every switch is saved at once (some only lived until the next teleport)
 		paint()
 	end))
 	return paint
@@ -5478,7 +5479,7 @@ local function sliderRow(body, label, lo, hi, step, get, set, fmt)
 	paints[#paints + 1] = paint
 	local function put(v)
 		v = math.clamp(lo + math.floor(((tonumber(v) or get()) - lo) / step + 0.5) * step, lo, hi)
-		if v ~= get() then set(v) end
+		if v ~= get() then set(v) save() end
 		paint()
 	end
 	local dragging = false
