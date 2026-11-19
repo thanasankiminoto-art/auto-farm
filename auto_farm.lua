@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795088986
+--@@BUILD 1795108351
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5259,7 +5259,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23o"
+M.VERSION = "v23p"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6211,12 +6211,30 @@ do
 	end, function() return M.opt.mkRarities end, function(v) M.opt.mkRarities[v] = not M.opt.mkRarities[v] or nil end, true)
 	dropdownRow(s, "Price", function() return { { "market", "Market average +/- %" }, { "fixed", "Fixed price per rarity" } } end,
 		function() return M.opt.mkMode or "market" end, function(v) M.opt.mkMode = v end)
-	sliderRow(s, "Market average +/- %", -50, 100, 5, function() return tonumber(M.opt.mkPct) or -10 end, function(v) M.opt.mkPct = v end, "%+d%%")
-	numRow(s, "Never list below", function() return tonumber(M.opt.mkMin) or 10 end, function(v) M.opt.mkMin = v end)
+	-- v23p: one plain line saying what will happen with these settings, then short labels
+	local FIXED_DEF = { Common = 200, Uncommon = 500, Rare = 2000, ["Super Rare"] = 10000, Legendary = 50000 }
+	textRow(s, function()
+		if not M.opt.mkSell then return '<font color="#e0b040">Off: items are sold to the shop as usual. Turn on the switch above to list them on the market.</font>' end
+		local rs = {}
+		for _, r in ipairs(M.MK_RARITIES) do if M.opt.mkRarities[r] then rs[#rs + 1] = r end end
+		if #rs == 0 then return '<font color="#e0b040">No rarity picked: nothing will be listed.</font>' end
+		local how
+		if (M.opt.mkMode or "market") == "fixed" then
+			local t = {}
+			for _, r in ipairs(rs) do t[#t + 1] = ("%s %s"):format(r, hl((M.opt.mkFixed or {})[r] or FIXED_DEF[r])) end
+			how = "at a fixed price: " .. table.concat(t, ", ")
+		else
+			local pct = tonumber(M.opt.mkPct) or -10
+			how = ("at the market average %s%%%s (an item nobody has sold yet uses its rarity's price below)"):format(pct >= 0 and ("+" .. pct) or tostring(pct), pct < 0 and " - cheaper, sells faster" or pct > 0 and " - dearer, sells slower" or "")
+		end
+		return ("Now: lists %s items %s, never under %s coins."):format(hl(table.concat(rs, ", ")), how, hl(tonumber(M.opt.mkMin) or 10))
+	end, 52)
+	sliderRow(s, "Vs market average", -50, 100, 5, function() return tonumber(M.opt.mkPct) or -10 end, function(v) M.opt.mkPct = v end, "%+d%%")
+	numRow(s, "Lowest price ever", function() return tonumber(M.opt.mkMin) or 10 end, function(v) M.opt.mkMin = v end)
+	textRow(s, "Price per rarity - used when Price is \"Fixed\", and for items with no sales history yet:")
 	M.opt.mkFixed = M.opt.mkFixed or {}
 	for _, r in ipairs(M.MK_RARITIES) do
-		numRow(s, "Fixed / no sales history: " .. r, function() return M.opt.mkFixed[r] or ({ Common = 200, Uncommon = 500, Rare = 2000, ["Super Rare"] = 10000, Legendary = 50000 })[r] end,
-			function(v) M.opt.mkFixed[r] = v end)
+		numRow(s, r, function() return M.opt.mkFixed[r] or FIXED_DEF[r] end, function(v) M.opt.mkFixed[r] = v end)
 	end
 	textRow(s, function()
 		local sd = M.side
