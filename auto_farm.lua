@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795108351
+--@@BUILD 1795109785
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4195,12 +4195,21 @@ M.questBookText = function()
 			for id in pairs(list) do ids[#ids + 1] = id end
 			table.sort(ids)
 			local nDone, left, daily, nStory = 0, {}, 0, 0
+			local dDone, dDoing, dWait = 0, 0, nil -- v23q: daily quests done in the last 24 h / in progress / next one back
+			local sdD = M.side.dailyDone or {}
 			for _, id in ipairs(ids) do
 				local e = list[id]
 				local q = prog[id]
 				local isDaily = tostring(id):find("Daily") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
 				if isDaily then
-					if not q then daily += 1 end
+					daily += 1
+					local t = tonumber(sdD[id])
+					if q then dDoing += 1
+					elseif t and os.time() - t < 86400 then
+						dDone += 1
+						local back = 86400 - (os.time() - t)
+						if not dWait or back < dWait then dWait = back end
+					end
 				elseif done[id] and not q then
 					nStory += 1
 					nDone += 1
@@ -4212,12 +4221,19 @@ M.questBookText = function()
 				end
 			end
 			totalLeft += #left
+			local dTxt = ""
+			if daily > 0 then
+				local col = dDone >= daily and "#6ED876" or "#E8C15A"
+				dTxt = ('\n   daily: <font color="%s">%d / %d done today</font>%s%s'):format(col, dDone, daily,
+					dDoing > 0 and (", %d doing now"):format(dDoing) or "",
+					dWait and (" - next one back in %dh %02dm"):format(dWait // 3600, (dWait % 3600) // 60) or "")
+			end
 			out[#out + 1] = ("%s: %s%d / %d story quests done%s%s"):format(W(f.n .. " " .. tostring(f.name)), #left == 0 and '<font color="#6ED876">all </font>' or "", nDone, nStory,
-				daily > 0 and (" + %d daily"):format(daily) or "", f.ok and "" or ' <font color="#9aa29c">(map locked)</font>')
+				f.ok and "" or ' <font color="#9aa29c">(map locked)</font>', dTxt)
 			for _, l in ipairs(left) do out[#out + 1] = l end
 		end
 	end
-	table.insert(out, 1, ("Story quests left on the maps seen so far: %s  (daily quests come back every day and are not counted)"):format(W(totalLeft)))
+	table.insert(out, 1, ("Story quests left on the maps seen so far: %s\nDaily quests come back 24 h after you finish them; \"done today\" counts the last 24 h."):format(W(totalLeft)))
 	return table.concat(out, "\n")
 end
 
@@ -5259,7 +5275,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23p"
+M.VERSION = "v23q"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
