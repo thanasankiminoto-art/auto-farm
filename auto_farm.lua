@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795086665
+--@@BUILD 1795086989
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3628,6 +3628,18 @@ M.prioTick = function()
 	local pr = M.prio
 	pr.last = pr.last or {}
 	if M.opt.focus == "level" then return M.levelModeRun() end
+	-- v23m: Upgrade gear mode still does the once-a-day things first: daily bosses, daily (and old) quests, a Tower prize run;
+	-- each goes out and comes back to the upgrade-material map (homeTarget)
+	if M.gearMode() == "upgrade" and M.gearAny() then
+		if M.prioRun("daily", false) then return true end
+		if M.oldQuestTick() then return true end
+		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
+			M.questTripEnd("nothing (more) to do here")
+			if M.backHome() then return true end
+		end
+		if M.side.questTrip and M.prioRun("quests", false) then return true end
+		if M.towerPrizeTick() then return true end
+	end
 	if M.gearModeRun() then return true end
 	for _, id in ipairs(pr.order) do
 		if pr.on[id] and (id == "floor" or id == "daily") and M.prioRun(id, false) then return true end
@@ -5247,7 +5259,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23l"
+M.VERSION = "v23m"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
