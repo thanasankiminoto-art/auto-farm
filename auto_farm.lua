@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795109962
+--@@BUILD 1795110108
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4222,24 +4222,24 @@ M.questBookText = function()
 				end
 			end
 			totalLeft += #left
-			-- v23r: one short line per map - story and daily side by side
+			-- v23s: the detailed wording, laid out as a small block per map (bold name, Story / Daily lines, a gap)
 			local G, Y, D = "#6ED876", "#E8C15A", "#9aa29c"
-			local story = #left == 0 and ('<font color="%s">story done</font>'):format(G) or ('<font color="%s">story %d/%d</font>'):format(Y, nDone, nStory)
-			local dTxt = ""
+			local head = ('<b><font size="14" color="#E9EEEA">%d  %s</font></b>%s'):format(f.n, tostring(f.name), f.ok and "" or (' <font color="%s">(locked)</font>'):format(D))
+			local story = #left == 0 and ('<font color="%s">%d / %d done</font>'):format(G, nDone, nStory) or ('<font color="%s">%d / %d done</font>  <font color="%s">(%d left)</font>'):format(Y, nDone, nStory, D, #left)
+			local lines = { head, "      Story     " .. story }
 			if daily > 0 then
 				dailyLeft = dailyLeft + math.max(0, daily - dDone - dDoing)
-				if dDone >= daily then
-					dTxt = ('   <font color="%s">daily done</font>%s'):format(G, dWait and ('<font color="%s"> (back %dh)</font>'):format(D, math.max(1, math.floor(dWait / 3600 + 0.5))) or "")
-				else
-					dTxt = ('   <font color="%s">daily %d/%d</font>%s'):format(Y, dDone, daily, dDoing > 0 and " (doing)" or "")
-				end
+				local col = dDone >= daily and G or Y
+				lines[#lines + 1] = ('      Daily      <font color="%s">%d / %d done today</font>%s%s'):format(col, dDone, daily,
+					dDoing > 0 and (" , %d doing now"):format(dDoing) or "",
+					dWait and ('  <font color="%s">- next back in %dh %02dm</font>'):format(D, dWait // 3600, (dWait % 3600) // 60) or "")
 			end
-			out[#out + 1] = ("%s   %s%s%s"):format(W(f.n .. " " .. tostring(f.name)), story, dTxt, f.ok and "" or (' <font color="%s">(locked)</font>'):format(D))
-			for _, l in ipairs(left) do out[#out + 1] = l end
+			out[#out + 1] = table.concat(lines, "\n")
+			for _, l in ipairs(left) do out[#out] = out[#out] .. "\n   " .. l end
 		end
 	end
-	table.insert(out, 1, ("Story left: %s     Daily left today: %s\n"):format(W(totalLeft), W(dailyLeft)))
-	return table.concat(out, "\n")
+	table.insert(out, 1, ('<b><font size="14">Story left: %s      Daily left today: %s</font></b>\n<font color="#9aa29c">A daily quest comes back 24 h after it is done.</font>'):format(W(totalLeft), W(dailyLeft)))
+	return table.concat(out, "\n\n")
 end
 
 -- one map trip at a time: is another trip (Tower, Catacombs, TP tour, drop scan, daily bosses, selling) under way?
@@ -5280,7 +5280,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23r"
+M.VERSION = "v23s"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
