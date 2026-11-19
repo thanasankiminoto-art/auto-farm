@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795126571
+--@@BUILD 1795127684
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -164,6 +164,7 @@ local M = {
 		orbs = true,      -- pick up item orbs on the map
 		bounty = true, -- hunt the bounty monster (pink marker) when one spawns on the map
 		skipCutscene = true, -- skip / vote-skip cutscenes (boss intros etc.)
+		startFolded = false, -- fold the window into the MOI HUB logo every time the script starts
 		autoSell = false, -- sell gear worse than yours in Sunshine Town when the bag is full
 		healAt = 70,      -- cast heal skills below this HP %
 		maxFightMin = 3,  -- skip quest mobs that would take longer than this to kill
@@ -5286,7 +5287,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23w"
+M.VERSION = "v23x"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6726,6 +6727,7 @@ do
 	end
 	local b = card(L, "Window", "W")
 	textRow(b, "Right Ctrl shows / hides this window. Drag it by the top bar.")
+	optToggle(b, "Fold the window when the script starts (also after every map change)", "startFolded")
 	optToggle(b, "Auto press Play on the start screen", "autoPlay")
 	optToggle(b, "Skip cutscenes (boss intros)", "skipCutscene")
 	optToggle(b, "Drop quests from other floors", "dropForeign")
@@ -6816,6 +6818,7 @@ do
 		end
 		repaintAll()
 	end
+	if M.opt.startFolded and M.setOpen then pcall(M.setOpen, false) end
 	if anyOn() then
 		M.running = true
 		log("resuming saved switches")
