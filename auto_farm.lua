@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795110310
+--@@BUILD 1795110530
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -1441,6 +1441,9 @@ end
 M.cycle = { enabled = false, questMin = 20, dungeonMin = 10, dungeons = {}, mode = "quest", phaseStart = 0, idx = 0, floor = nil }
 
 local function saveState()
+	-- v23u: a copy that was replaced by a newer one must never write: its switches were cleared on the way out
+	-- and that wiped the saved switches (the account then just stood there, "nothing to do")
+	if M.alive == false then return end
 	local ok, txt = pcall(function()
 		return Http:JSONEncode({ opt = M.opt, statW = M.statW, statT = M.statT, on = M.on, cycle = M.cycle, sellTrip = M.sellTrip, side = M.side, prio = M.prio })
 	end)
@@ -5280,7 +5283,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23t"
+M.VERSION = "v23u"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6758,6 +6761,7 @@ do
 end
 
 local function destroy(byUser)
+	if byUser ~= true then M.alive = false end -- replaced by a newer copy: stop writing the state before clearing anything
 	stopTask(byUser ~= true) -- replaced by a newer copy: keep the saved switches
 	M.alive = false
 	release()
