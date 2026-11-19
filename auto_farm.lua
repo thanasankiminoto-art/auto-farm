@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795069249
+--@@BUILD 1795069396
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -923,7 +923,7 @@ local function doKill(q)
 			sd.questTried = sd.questTried or {}
 			local okFloor = false
 			for _, f in ipairs(M.floorList()) do if f.n == mf and f.ok then okFloor = true end end
-			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and not M.onTrip() and not M.gearHold() and not sd.questTrip and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
+			if mf and cur and mf ~= cur and okFloor and not M.inDungeon() and not M.onTrip() and not sd.questTrip and os.time() - (sd.questTried[q.MobToKill] or 0) > 600 then
 				sd.questTried[q.MobToKill] = os.time()
 				sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved = os.time(), q.MobToKill, mf, nil, os.time()
 				M.saveState()
@@ -4280,7 +4280,7 @@ end
 M.oldQuestTick = function()
 	if (M.opt.oldQuests == false and M.opt.dailyTour == false) or not M.on.accept then return false end
 	local sd, now = M.side, os.time()
-	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) or M.gearHold() then return false end
+	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) then return false end
 	if M.dailyNext and M.dailyNext() then return false end
 	local maxQ = 4
 	for _, r in pairs(RC._replicas) do
@@ -4416,7 +4416,7 @@ M.eggTick = function()
 	local cur = currentFloor()
 	local sd = M.side
 	if cur ~= want.fl then
-		if M.onTrip() or sd.questTrip or M.gearHold() or os.time() < (sd.eggNext or 0) then return false end
+		if M.onTrip() or sd.questTrip or os.time() < (sd.eggNext or 0) then return false end
 		if M.dailyNext and M.dailyNext() then return false end
 		local okFloor = false
 		for _, f in ipairs(M.floorList()) do if f.n == want.fl and f.ok then okFloor = true end end
@@ -4694,7 +4694,7 @@ end
 M.mkTripTick = function()
 	if inDungeon() or M.sellTrip or currentFloor() == 1 then return false end
 	local sd = M.side
-	if M.onTrip() or sd.questTrip or M.gearHold() then return false end
+	if M.onTrip() or sd.questTrip then return false end
 	if os.time() < (sd.mkTripNext or 0) and not sd.mkCheckReq then return false end
 	if M.dailyNext and M.dailyNext() and not sd.mkCheckReq then return false end
 	local why = sd.mkCheckReq and "check prices"
@@ -5203,7 +5203,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23i"
+M.VERSION = "v23j"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
