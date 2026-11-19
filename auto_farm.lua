@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795075339
+--@@BUILD 1795086665
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4928,7 +4928,20 @@ local function scheduler()
 	local unlockDone = false
 	while M.alive and anyOn() do
 		task.wait(0.1) -- never spin without yielding (a tight loop here froze the game once)
-		if os.clock() > (M._boxCheck or 0) then M._boxCheck = os.clock() + 3 pcall(M.dismissBox) end -- a result screen left open (rolled by hand, too)
+		if os.clock() > (M._boxCheck or 0) then M._boxCheck = os.clock() + 3 pcall(M.dismissBox) end
+		if os.clock() > (M._modeLvCheck or 0) then
+			M._modeLvCheck = os.clock() + 20
+			pcall(function()
+				local at = tonumber(M.opt.upgradeAtLv) or 0
+				local d = data()
+				local lvNow = d and d.Data.Leveling and d.Data.Leveling.Level or 0
+				if at > 0 and lvNow >= at and M.getMode() == "level" then
+					log(("reached Lv %d - switching Level up -> Upgrade gear (set to Lv %d)"):format(lvNow, at))
+					M.opt.upgradeAtLv = 0
+					M.setMode("gear")
+				end
+			end)
+		end -- a result screen left open (rolled by hand, too)
 		local ok, err = pcall(function()
 			if not char() then
 				status("Waiting for respawn...")
@@ -5234,7 +5247,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23k"
+M.VERSION = "v23l"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5642,6 +5655,8 @@ M.modeCard = function(col)
 	paints[#paints + 1] = paint
 	refreshers[#refreshers + 1] = paint
 	textRow(c, function() return M.modeSummary() end, 70)
+	-- v23l: Level up until a level, then switch to Upgrade gear by itself (0 = off; turns itself off once done)
+	sliderRow(c, "Level up -> Upgrade gear at Lv (0 = off)", 0, 300, 1, function() return tonumber(M.opt.upgradeAtLv) or 0 end, function(v) M.opt.upgradeAtLv = v end)
 	return c
 end
 
