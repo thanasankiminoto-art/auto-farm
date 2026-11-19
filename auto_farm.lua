@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795087686
+--@@BUILD 1795088986
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3595,7 +3595,6 @@ M.towerNeed = function(fl)
 	return math.floor(M.TOWER_REF.power * (0.5 + 0.5 * math.min(1, fl / M.TOWER_REF.floor)))
 end
 M.towerPrizeTick = function()
-	if M.opt.towerPrize == false then return false end -- v23n: switch on Gear Goals > How It Works
 	if inDungeon() or M.sellTrip or M.onTrip() or M.side.questTrip then return false end
 	local w = M.towerPrizeWant()
 	if not w then M.side.towerPrizeGoal, M.side.prizeTry, M.prizeState = nil, nil, nil return false end
@@ -5260,7 +5259,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23n"
+M.VERSION = "v23o"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6562,9 +6561,7 @@ do
 	if M.opt.wearStrongest == nil then M.opt.wearStrongest = true end
 	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
-	if M.opt.towerPrize == nil then M.opt.towerPrize = true end
 	optToggle(h, "Roll eggs / Skeleton Chest for the picked pet / mount (Coins / Skeleton Keys only)", "eggRoll")
-	optToggle(h, "Climb the Tower for a picked Tower-prize pet / mount (when strong enough)", "towerPrize")
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
 	textRow(h, function() return M.prizeState or "Tower prizes: nothing to fetch" end)
