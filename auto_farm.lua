@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795127684
+--@@BUILD 1795128034
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -181,6 +181,11 @@ if savedOpt then
 end
 local conns = {}
 local skipUntil = {} -- questId -> os.clock() when it may be retried
+-- v23y: a quest given up for hours (e.g. a Find whose item is not on the map) stays given up after a teleport too
+local function longSkipped(id)
+	local sd = M.side and M.side.oldSkip
+	return sd ~= nil and (sd[id] or 0) > os.time()
+end
 local failCount = {} -- questId -> number of failed attempts
 
 local function log(s)
@@ -1044,7 +1049,7 @@ end
 local function nextStep(kind)
 	local now = os.clock()
 	for i, q in ipairs(quests()) do
-		if q.Objective == kind and (skipUntil[q.ID] or 0) < now then return q, i end
+		if q.Objective == kind and (skipUntil[q.ID] or 0) < now and not longSkipped(q.ID) then return q, i end
 	end
 end
 
@@ -3285,7 +3290,7 @@ local function doOneQuest()
 	local q, index
 	if M.focus then
 		q, index = questById(M.focus)
-		if not q or q.Objective == "Return" or (skipUntil[q.ID] or 0) >= now or not switchFor(q.Objective) then
+		if not q or q.Objective == "Return" or (skipUntil[q.ID] or 0) >= now or longSkipped(q.ID) or not switchFor(q.Objective) then
 			q = nil
 		end
 	end
@@ -3294,7 +3299,7 @@ local function doOneQuest()
 		-- start with the quest that is closest to done
 		local bestR
 		for i, cand in ipairs(quests()) do
-			if cand.Objective ~= "Return" and switchFor(cand.Objective) and (skipUntil[cand.ID] or 0) < now then
+			if cand.Objective ~= "Return" and switchFor(cand.Objective) and (skipUntil[cand.ID] or 0) < now and not longSkipped(cand.ID) then
 				local r = (tonumber(cand.Progress) or 0) / math.max(1, tonumber(cand.Amount) or 1)
 				if not bestR or r > bestR then q, index, bestR = cand, i, r end
 			end
@@ -5287,7 +5292,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23x"
+M.VERSION = "v23y"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
