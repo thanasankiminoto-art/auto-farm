@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795186670
+--@@BUILD 1795187706
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3485,7 +3485,7 @@ M.gearStreakRun = function()
 	local item = M.gearFarmFor
 	-- saved before going in: entering a dungeon teleports, and this code does not run on after that
 	if keys[1] and item then
-		sd.gearPending = { key = keys[1], item = item, have = M.gearHave(item), t = os.time() }
+		sd.gearPending = { key = keys[1], item = item, have = M.gearHave(item), coins = M.gearHave("Coins"), t = os.time() }
 		saveState()
 	end
 	local ok = M.prioRun("gear", true)
@@ -4161,7 +4161,9 @@ M.gearTick = function(force)
 						needs[#needs + 1] = { item = cname, slot = sl.id, mat = true }
 						M.gearState[sl.id] = ("Lv %d -> %d: short of %s (%d/%d)"):format(lvl, target, cname, have, camt)
 					elseif (d.Data.Currencies.Coins or 0) - coins < (M.opt.keepCoins or 2000) then
-						M.gearState[sl.id] = ("Lv %d -> %d: waiting for coins (%d a level)"):format(lvl, target, coins)
+						M.gearState[sl.id] = ("Lv %d -> %d: waiting for coins (%d a level, have %d)"):format(lvl, target, coins, d.Data.Currencies.Coins or 0)
+						-- v24b: materials are there, only Coins are missing: farm where Coins come fastest
+						if M.opt.coinFarm ~= false then needs[#needs + 1] = { item = "Coins", slot = sl.id, mat = true, coins = true } end
 					else
 						M.gearState[sl.id] = ("Lv %d -> %d: upgrading"):format(lvl, target)
 						M.gearUpgrade(sl, copy, target)
@@ -5034,12 +5036,32 @@ M.gearHave = function(item)
 	local d = data()
 	if not d then return 0 end
 	local inv = d.Data.Inventory
+	if item == "Coins" then return tonumber(d.Data.Currencies.Coins) or 0 end
 	if inv.Materials and inv.Materials[item] then return tonumber(inv.Materials[item]) or 0 end
 	local n = 0
 	for _, cls in ipairs({ "Weapons", "Armor" }) do
 		for _, it in pairs(inv[cls] or {}) do if type(it) == "table" and it.Name == item then n += 1 end end
 	end
 	return n
+end
+-- v24b: where Coins can be farmed: dungeons and bosses of the two highest maps you can enter (Coins grow with the map)
+M.coinSources = function()
+	local info = gameInfo() or {}
+	local okF, top = {}, {}
+	for _, f in ipairs(M.floorList()) do if f.ok then okF[f.n] = true top[#top + 1] = f.n end end
+	table.sort(top, function(a, b) return a > b end)
+	local want = {}
+	for i = 1, math.min(2, #top) do want[top[i]] = true end
+	local out = {}
+	for name, x in pairs(info.Dungeons or {}) do
+		local fl = tonumber(x.Floor)
+		if fl and want[fl] then out[#out + 1] = { kind = "dungeon", key = name, label = "Dungeon " .. name, floor = fl, ok = true, farm = true } end
+	end
+	for name, x in pairs(info.Bosses or {}) do
+		local fl = tonumber(x.Floor)
+		if fl and want[fl] then out[#out + 1] = { kind = "boss", key = "BOSS:" .. name, label = "Boss " .. name, floor = fl, ok = true, farm = true } end
+	end
+	return out
 end
 -- each place is measured: what it gave per minute. Every place is tried twice, then the best one is used.
 M.gearMeasure = function()
@@ -5053,7 +5075,16 @@ M.gearMeasure = function()
 	local st = sd.gearStat[pend.item .. "|" .. pend.key] or { runs = 0, gain = 0, secs = 0 }
 	st.runs, st.gain, st.secs = st.runs + 1, st.gain + gain, st.secs + secs
 	sd.gearStat[pend.item .. "|" .. pend.key] = st
-	log(("gear: %s gave %d %s (%.1f per hour so far)"):format(pend.key, gain, pend.item, st.gain / st.secs * 3600))
+	if pend.item ~= "Coins" then log(("gear: %s gave %d %s (%.1f per hour so far)"):format(pend.key, gain, pend.item, st.gain / st.secs * 3600)) end
+	-- v24b: Coins from every run, whatever it was for
+	if pend.coins then
+		local cg = math.max(0, M.gearHave("Coins") - pend.coins)
+		sd.coinStat = sd.coinStat or {}
+		local cs = sd.coinStat[pend.key] or { runs = 0, gain = 0, secs = 0 }
+		cs.runs, cs.gain, cs.secs = cs.runs + 1, cs.gain + cg, cs.secs + secs
+		sd.coinStat[pend.key] = cs
+		log(("gear: %s gave %d Coins (%d per hour there so far)"):format(pend.key, cg, math.floor(cs.gain / cs.secs * 3600)))
+	end
 end
 M.gearFarmKeys = function()
 	local sd = M.side
@@ -5064,11 +5095,12 @@ M.gearFarmKeys = function()
 		-- the score is smoothed ((got + 1) / time, so one dry run doesn't rule a place out),
 		-- and every 6th run goes to the least-tried place to keep the numbers honest
 		local best, bestRate, untried, least, leastRuns
-		for _, s in ipairs(M.gearSources(n.item)) do
+		local srcs = n.coins and M.coinSources() or M.gearSources(n.item)
+		for _, s in ipairs(srcs) do
 			if s.farm and s.ok then
-				local st = sd.gearStat[n.item .. "|" .. s.key]
+				local st = n.coins and (sd.coinStat or {})[s.key] or sd.gearStat[n.item .. "|" .. s.key]
 				local runs = st and st.runs or 0
-				if runs < 3 then
+				if runs < (n.coins and 2 or 3) then
 					untried = untried or s.key
 				else
 					local rate = (st.gain + 1) / math.max(60, st.secs)
@@ -5442,7 +5474,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24a"
+M.VERSION = "v24b"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6770,6 +6802,8 @@ do
 	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
 	optToggle(h, "Roll eggs / Skeleton Chest for the picked pet / mount (Coins / Skeleton Keys only)", "eggRoll")
+	if M.opt.coinFarm == nil then M.opt.coinFarm = true end
+	optToggle(h, "Upgrade gear: when only Coins are missing, farm where Coins come fastest (measured per place)", "coinFarm")
 	if M.opt.premiumBox == nil then M.opt.premiumBox = false end
 	optToggle(h, "Open shop boxes with Bleeter Bits for a picked pet / mount that only comes from a box (never Robux)", "premiumBox")
 	sliderRow(h, "Keep at least this many Bleeter Bits", 0, 20000, 500, function() return tonumber(M.opt.premiumKeep) or 0 end, function(v) M.opt.premiumKeep = v end)
