@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795188866
+--@@BUILD 1795194173
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4881,14 +4881,22 @@ M.mkTick = function()
 			x = M.mkSellList(true)[1] -- the price lookup waits; take the entry as it is now
 			if not x then break end
 			if x.item.Name ~= name then continue end
-			local ok = M.mkInvoke("SellItem", { x.cls, x.key, x.item }, price)
+			-- v24f: the 2nd listing of a visit was always refused right after the 1st: the game wants a pause between them
+			local ok, msg
+			for attempt = 1, 3 do
+				ok, msg = M.mkInvoke("SellItem", { x.cls, x.key, x.item }, price)
+				if ok then break end
+				task.wait(4 * attempt)
+				x = M.mkSellList(true)[1]
+				if not x or x.item.Name ~= name then break end
+			end
 			if ok then
 				free -= 1
 				did = true
-				log(("market: listed %s for %d (%s)"):format(x.item.Name, price, why))
-				task.wait(1.5)
+				log(("market: listed %s for %d (%s)"):format(name, price, why))
+				task.wait(3)
 			else
-				log(("market: could not list %s"):format(x.item.Name))
+				log(("market: could not list %s (%s)"):format(name, tostring(msg)))
 				break
 			end
 		end
@@ -5460,7 +5468,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24e"
+M.VERSION = "v24f"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
