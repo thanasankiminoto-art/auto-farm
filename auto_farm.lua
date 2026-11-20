@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795195560
+--@@BUILD 1795197869
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24h"
+M.VERSION = "v24i"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6663,7 +6663,8 @@ do
 				if cname then
 					local t = {}
 					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss "):gsub("^Monster ", "") end end
-					return ("Next upgrade needs %s - from: %s"):format(hl(cname), table.concat(t, ", "))
+					local plan = M.upgradePlanText(sl.id)
+					return (plan and (plan .. "\n") or "") .. ("%s comes from: %s"):format(hl(cname), table.concat(t, ", "))
 				end
 				return "Max level reached."
 			end
@@ -7190,6 +7191,60 @@ M.discord = function(text, force)
 	return ok
 end
 -- a live status card in Discord: one message per account, edited every 2 minutes
+-- v24i: what one gear-goal slot needs: the next level now, and everything up to its goal level
+local function fmtN(x) return tostring(math.floor(tonumber(x) or 0)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "") end
+M.fmtN = fmtN
+M.upgradePlan = function(slId)
+	local d = data()
+	if not d then return nil end
+	local G = M.gearCfg()
+	local cfg = G[slId]
+	local sl
+	for _, x in ipairs(M.GEAR_SLOTS) do if x.id == slId then sl = x end end
+	if not (cfg and cfg.name and sl) or sl.flat then return nil end
+	local copies = M.gearCopies(sl.cls, cfg.name)
+	if #copies == 0 then return nil end
+	local use = (M.gearUse or {})[slId]
+	if not use then
+		local other = slId == "w2" and G.w1 and G.w1.name == cfg.name
+		use = (copies[other and 2 or 1] or copies[1]).item
+	end
+	local myLv = d.Data.Leveling.Level or 1
+	local target = (tonumber(cfg.target) or 0) > 0 and math.min(tonumber(cfg.target), myLv) or myLv
+	local lvl = (use.Leveling and use.Leveling.Level) or 1
+	local mats = d.Data.Inventory.Materials or {}
+	local coins = tonumber(d.Data.Currencies.Coins) or 0
+	local keep = M.opt.keepCoins or 2000
+	if lvl >= target then return { done = true, lvl = lvl, target = target } end
+	local cname, camt, ccost = M.upgradeCost(use)
+	if not cname then return { max = true, lvl = lvl } end
+	-- the whole way to the goal level
+	local tot, totCoins = {}, 0
+	for l = lvl, target - 1 do
+		local ok, cn, ca = pcall(function() return UCF:GetUpgradeCrystalRequirement(l) end)
+		local okp, cc = pcall(function() return UCF:CalculateUpgradeCost(use.Name, l, gameInfo()) end)
+		if ok and cn then tot[cn] = (tot[cn] or 0) + (ca or 0) end
+		if okp and cc then totCoins += cc end
+	end
+	return { lvl = lvl, target = target, cname = cname, camt = camt, have = tonumber(mats[cname]) or 0, ccost = ccost, coins = coins, keep = keep, tot = tot, totCoins = totCoins, mats = mats }
+end
+M.upgradePlanText = function(slId, plain)
+	local p = M.upgradePlan(slId)
+	if not p then return nil end
+	if p.done then return ("Lv %d - goal Lv %d reached"):format(p.lvl, p.target) end
+	if p.max then return ("Lv %d - max level"):format(p.lvl) end
+	local okC = p.have >= p.camt
+	local okM = p.coins - p.ccost >= p.keep
+	local function mark(ok) if plain then return ok and "✅" or "❌" end return ok and '<font color="#7BE07B">✓</font>' or '<font color="#d65656">✗</font>' end
+	local lines = {}
+	lines[#lines + 1] = ("Next (Lv %d -> %d): %s %s %s / %s  ·  %s Coins %s / %s"):format(p.lvl, p.lvl + 1, mark(okC), p.cname, fmtN(p.have), fmtN(p.camt),
+		mark(okM), fmtN(p.coins), fmtN(p.ccost + p.keep))
+	local t = {}
+	for cn, amt in pairs(p.tot) do t[#t + 1] = ("%s %s / %s"):format(cn, fmtN(tonumber(p.mats[cn]) or 0), fmtN(amt)) end
+	table.sort(t)
+	lines[#lines + 1] = ("To Lv %d (%d levels): %s  ·  Coins %s"):format(p.target, p.target - p.lvl, table.concat(t, ", "), fmtN(p.totCoins))
+	return table.concat(lines, "\n")
+end
 M.statusCard = function()
 	local d = data()
 	if not d then return nil end
@@ -7233,6 +7288,8 @@ M.statusCard = function()
 			end
 			local st = (M.gearState or {})[sl.id]
 			goals[#goals + 1] = ("%s: %s - %s%s"):format(sl.title:gsub(" %(.-%)", ""), cfg.name, lvTxt, st and (" (" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "") .. ")") or "")
+			local plan = not sl.flat and #copies > 0 and M.upgradePlanText(sl.id, true)
+			if plan then goals[#goals + 1] = "  " .. plan:gsub("\n", "\n  ") end
 		end
 	end
 	local mode = M.getMode and M.getMode() or "?"
@@ -7262,7 +7319,15 @@ M.statusCard = function()
 		{ name = "Hands", value = it(eq.Hands and eq.Hands[1]) .. "\n" .. it(eq.Hands and eq.Hands[2]), inline = true },
 		{ name = "Armor", value = it(eq.Armor), inline = true },
 		{ name = "Pet / Mount", value = it(eq.Companion) .. "\n" .. it(eq.Mount), inline = true },
-		{ name = "Gear Goals", value = #goals > 0 and table.concat(goals, "\n"):sub(1, 1000) or "-", inline = false },
+		{ name = "Gear Goals", value = #goals > 0 and table.concat(goals, "\n"):sub(1, 1020) or "-", inline = false },
+		{ name = "Upgrade crystals", value = (function()
+			local t = {}
+			for k, v in pairs(d.Data.Inventory.Materials or {}) do
+				if tostring(k):find("Upgrade Crystal") then t[#t + 1] = ("%s: **%s**"):format(tostring(k):gsub(" Upgrade Crystal", ""), fmtN(v)) end
+			end
+			table.sort(t)
+			return #t > 0 and table.concat(t, "\n") or "none"
+		end)(), inline = false },
 		{ name = "Now", value = tostring(statusLabel and statusLabel.Text or "-"):gsub("<[^>]+>", ""):sub(1, 200), inline = false },
 	}
 	return {
