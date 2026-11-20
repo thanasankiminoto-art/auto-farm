@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795215872
+--@@BUILD 1795216798
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -689,7 +689,7 @@ local function kill(mob, single)
 	end
 	-- keep fighting while the mob keeps losing HP; give up only after 20 s without any damage (hard cap 5 min)
 	while M.running and (M.on.kill or M._dungeonRunning) and h.Health > 0 and mob.Parent and os.clock() - lastProgress < 20 and os.clock() - t0 < (single and 900 or 300)
-		and not (h.Health >= h.MaxHealth and os.clock() - t0 > 12 and not single) do
+		and not (h.Health >= h.MaxHealth and os.clock() - t0 > 28 and not single) do
 		if h.Health < lastHP then
 			M._dmg = (M._dmg or 0) + (lastHP - h.Health) -- live damage meter for "too strong" checks
 			lastProgress, lastHP = os.clock(), h.Health
@@ -796,6 +796,18 @@ local function kill(mob, single)
 		p = mobPos(mob) or p
 		-- glide to the spot above/below the mob (follows it if it walks)
 		local want = M.crowdSpot(mob, p, sign, dist) or (p + Vector3.new(0, sign * dist, 0))
+		-- v24u: still no damage after 6 s even up close: something (a roof, a floor) is between us and it.
+		-- Stand beside it at its own height instead, and walk round it until a side works.
+		if not M._dungeonRunning and os.clock() - lastProgress > 6 and h.Health >= lastHP then
+			local step = math.floor((os.clock() - lastProgress - 6) / 4) % 4
+			local ang = math.rad(step * 90)
+			want = p + Vector3.new(math.cos(ang) * 7, 0, math.sin(ang) * 7)
+			if not M._sideLog or os.clock() - M._sideLog > 8 then
+				M._sideLog = os.clock()
+				log(("no damage on %s from above/below - trying its side (%d)"):format(mob.Name, step + 1))
+			end
+			equip()
+		end
 		local safe, dodging = safePos(want)
 		-- standing in a red area right now: snap out instantly, gliding is too slow for 0.5s attacks
 		if M.opt.dodge then
@@ -5548,7 +5560,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24t"
+M.VERSION = "v24u"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
