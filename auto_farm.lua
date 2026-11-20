@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795154291
+--@@BUILD 1795174701
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3847,7 +3847,7 @@ M.howToGet = function(name)
 	elseif first then
 		h.note = #other > 0 and ("Also from: " .. table.concat(other, "; ") .. " (not done by the script; Bleeter Bits / Robux are never spent).") or ""
 	elseif #other > 0 then
-		h.note = '<font color="#e0b040">The script can\'t farm this one: it only comes from ' .. table.concat(other, "; ") .. '. Bleeter Bits / Robux are never spent, so the market is the only way.</font>'
+		h.note = '<font color="#e0b040">The script can\'t farm this one: it only comes from ' .. table.concat(other, "; ") .. '. Bleeter Bits / Robux are never spent, so the market is the only way - or turn on "Open shop boxes with Bleeter Bits".</font>'
 	else
 		h.note = '<font color="#d65656">Not in any egg, chest, drop or prize seen so far (an event item, or in the egg of a map not reached yet). Only the market for now.</font>'
 	end
@@ -4447,6 +4447,71 @@ M.chestTick = function()
 	pcall(M.saveState)
 	return true
 end
+-- v24: Bleeter Bits (Premium) shop boxes for a Gear Goals pet / mount, only when the person turned it on.
+-- Uses Bleeter Bits already owned; never asks for Robux. x10 while it fits above the amount kept, then x1.
+M.boxFor = function(name)
+	local info = gameInfo() or {}
+	for cls, boxes in pairs(info.Shop or {}) do
+		for boxName, box in pairs(boxes) do
+			if type(box) == "table" and type(box.Items) == "table" and box.Items[name] ~= nil then return cls, boxName, box end
+		end
+	end
+end
+M.premiumNow = function()
+	for _, r in pairs(RC._replicas) do
+		if r.Class == "PlayerData" and r.Data and r.Data.Currencies and r.Data.Currencies.Premium ~= nil then return r, tonumber(r.Data.Currencies.Premium) or 0 end
+	end
+	return nil, 0
+end
+M.premiumBoxTick = function()
+	if M.opt.premiumBox ~= true or inDungeon() or M.sellTrip then return false end
+	if os.clock() < (M._pbNext or 0) then return false end
+	M._pbNext = os.clock() + 60
+	local G = M.gearCfg()
+	local want
+	for _, id in ipairs({ "pet", "mount" }) do
+		local cfg = G[id]
+		local cls = id == "pet" and "Companions" or "Mounts"
+		local h = cfg and cfg.name and M.howToGet and M.howToGet(cfg.name)
+		-- only items the script can't farm, and not ones switched off ("farm" = Off for box-only items)
+		if cfg and cfg.name and cfg.get ~= "farm" and not (h and h.farm) and #M.gearCopies(cls, cfg.name) == 0 and not M.eggFor(cfg.name) and not M.TOWER_PRIZES[cfg.name] then
+			local bc, bn, box = M.boxFor(cfg.name)
+			if bc then want = { name = cfg.name, cls = cls, bc = bc, bn = bn, box = box } break end
+		end
+	end
+	if not want then return false end
+	local root, bits = M.premiumNow()
+	if not root then return false end
+	local keep = tonumber(M.opt.premiumKeep) or 0
+	local p1, p10 = tonumber(want.box.Buy1Price) or 500, tonumber(want.box.Buy10Price) or 4950
+	if bits - p1 < keep then
+		M.boxState = ("%s: %d Bleeter Bits, a box is %d (keeps %d)"):format(want.name, bits, p1, keep)
+		return false
+	end
+	local before, opened = bits, 0
+	status("Opening " .. want.bn .. " for " .. want.name)
+	log(("box: opening %s with Bleeter Bits for %s (%d Bleeter Bits now)"):format(want.bn, want.name, bits))
+	while M.running and M.opt.premiumBox == true and #M.gearCopies(want.cls, want.name) == 0 do
+		local _, now = M.premiumNow()
+		local n = (now - p10 >= keep) and 10 or (now - p1 >= keep) and 1 or 0
+		if n == 0 then break end
+		root:FireServer("PurchaseBox", { BoxClass = want.bc, BoxName = want.bn, Amount = n })
+		local t0 = os.clock()
+		repeat task.wait(0.3) until select(2, M.premiumNow()) < now or os.clock() - t0 > 6
+		if select(2, M.premiumNow()) >= now then log("box: the game took no Bleeter Bits - stopping") break end
+		opened += n
+		M.dismissBox(8)
+		task.wait(1)
+	end
+	local got = #M.gearCopies(want.cls, want.name) > 0
+	local _, after = M.premiumNow()
+	M.side.boxOpened = (M.side.boxOpened or 0) + opened
+	saveState()
+	log(("box: opened %d for %d Bleeter Bits%s"):format(opened, before - after, got and (" - got " .. want.name .. "!") or ""))
+	M.boxState = got and (want.name .. ": got it") or ("%s: %d boxes opened so far, not yet"):format(want.name, M.side.boxOpened)
+	if got then M._nextGearGoal = 0 pcall(M.gearTick, true) end
+	return opened > 0
+end
 M.eggTick = function()
 	if M.opt.eggRoll ~= true or inDungeon() or M.sellTrip then return false end
 	local d = data()
@@ -5033,6 +5098,7 @@ local function scheduler()
 			if sellTick() then return end
 			if M.bountyTick() then return end -- a bounty on this map comes before everything else
 			if M.eggTick() then return end
+			if M.premiumBoxTick() then return end
 			if M.chestTick() then return end
 			if M.mkTick() then pcall(M.goHome) return end
 			if M.mkTripTick() then return end
@@ -5302,7 +5368,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23z"
+M.VERSION = "v24"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6624,8 +6690,12 @@ do
 	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
 	optToggle(h, "Roll eggs / Skeleton Chest for the picked pet / mount (Coins / Skeleton Keys only)", "eggRoll")
+	if M.opt.premiumBox == nil then M.opt.premiumBox = false end
+	optToggle(h, "Open shop boxes with Bleeter Bits for a picked pet / mount that only comes from a box (never Robux)", "premiumBox")
+	sliderRow(h, "Keep at least this many Bleeter Bits", 0, 20000, 500, function() return tonumber(M.opt.premiumKeep) or 0 end, function(v) M.opt.premiumKeep = v end)
 	sliderRow(h, "Keep at least this many Coins when rolling", 0, 200000, 5000, function() return tonumber(M.opt.eggKeep) or 30000 end, function(v) M.opt.eggKeep = v end)
 	textRow(h, function() return M.eggState or "Eggs: nothing to roll for" end)
+	textRow(h, function() return M.boxState or (M.opt.premiumBox and "Bleeter Bits boxes: nothing to open" or "Bleeter Bits boxes: off") end)
 	textRow(h, function() return M.prizeState or "Tower prizes: nothing to fetch" end)
 	textRow(h, function()
 		local rows = {}
