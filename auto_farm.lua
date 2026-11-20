@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795194534
+--@@BUILD 1795195560
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3667,11 +3667,13 @@ M.prioTick = function()
 	if M.gearMode() == "upgrade" and M.gearAny() then
 		if M.prioRun("daily", false) then return true end
 		if M.oldQuestTick() then return true end
+		-- v24h: on arrival the daily quests are not taken yet: take / work them first, and only then call the trip over
+		-- (before, the trip ended the second it arrived, so daily quests were never done in Upgrade gear mode)
+		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and M.prioRun("quests", false) then return true end
 		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
 			M.questTripEnd("nothing (more) to do here")
 			if M.backHome() then return true end
 		end
-		if M.side.questTrip and M.prioRun("quests", false) then return true end
 		if M.towerPrizeTick() then return true end
 	end
 	if M.gearModeRun() then return true end
@@ -5468,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24g"
+M.VERSION = "v24h"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
