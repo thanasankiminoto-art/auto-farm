@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795197869
+--@@BUILD 1795198341
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24i"
+M.VERSION = "v24j"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6613,6 +6613,12 @@ do
 		local imgStroke = stroke(img, C.line, 2)
 		local nm = mk("TextLabel", { Size = UDim2.new(1, -84, 0, 22), Position = UDim2.new(0, 78, 0, 6), BackgroundTransparency = 1, Text = "", TextColor3 = C.text, Font = FB, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, top)
 		local sub = mk("TextLabel", { Size = UDim2.new(1, -84, 0, 44), Position = UDim2.new(0, 78, 0, 28), BackgroundTransparency = 1, Text = "", TextColor3 = C.dim, Font = F, TextSize = 11, TextWrapped = true, RichText = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top }, top)
+		-- v24j: the box grows with its text (a long state used to spill over the row below)
+		sub:GetPropertyChangedSignal("TextBounds"):Connect(function()
+			local h = sub.TextBounds.Y
+			sub.Size = UDim2.new(1, -84, 0, math.max(44, h + 2))
+			top.Size = UDim2.new(1, 0, 0, math.max(76, 28 + h + 8))
+		end)
 		local function paintTop()
 			local c = cfg()
 			local it = infoOf(c and c.name)
@@ -6648,7 +6654,15 @@ do
 			local kind = sl.cls == "Weapons" and (it.Class or "") or sl.cls == "Armor" and "Armor" or sl.title
 			local stt = (M.gearState or {})[sl.id]
 			if not stt then stt = inDungeon() and "waits until you are back on the map" or "waiting for the next check" end
-			sub.Text = ("%s %s - %s\n%s"):format(it.Rarity or "", kind, own, hl(stt))
+			-- v24j: one short line (the details are in the box below); long text used to run over the next row
+			local short = stt
+			if stt:find("short of") then short = "farming upgrade crystals"
+			elseif stt:find("waiting for coins") then short = "waiting for Coins"
+			elseif stt:find("upgrading") then short = "upgrading now"
+			elseif stt:find("done") then short = "goal reached"
+			elseif stt:find("max level") then short = "max level" end
+			if stt:find("too high to wear") then short = short .. ", too high to wear yet" end
+			sub.Text = ("%s %s · %s\n%s"):format(it.Rarity or "", kind, own:gsub("using ", ""), hl(short))
 		end
 		refreshers[#refreshers + 1] = paintTop
 		paints[#paints + 1] = paintTop
@@ -6664,7 +6678,7 @@ do
 					local t = {}
 					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss "):gsub("^Monster ", "") end end
 					local plan = M.upgradePlanText(sl.id)
-					return (plan and (plan .. "\n") or "") .. ("%s comes from: %s"):format(hl(cname), table.concat(t, ", "))
+					return (plan and (plan .. "\n") or "") .. ("<font color=\"#7d857f\">%s crystals: %s</font>"):format(tostring(cname):gsub(" Upgrade Crystal", ""), table.concat(t, ", "))
 				end
 				return "Max level reached."
 			end
@@ -7233,17 +7247,18 @@ M.upgradePlanText = function(slId, plain)
 	if not p then return nil end
 	if p.done then return ("Lv %d - goal Lv %d reached"):format(p.lvl, p.target) end
 	if p.max then return ("Lv %d - max level"):format(p.lvl) end
+	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", "")) end
 	local okC = p.have >= p.camt
 	local okM = p.coins - p.ccost >= p.keep
 	local function mark(ok) if plain then return ok and "✅" or "❌" end return ok and '<font color="#7BE07B">✓</font>' or '<font color="#d65656">✗</font>' end
-	local lines = {}
-	lines[#lines + 1] = ("Next (Lv %d -> %d): %s %s %s / %s  ·  %s Coins %s / %s"):format(p.lvl, p.lvl + 1, mark(okC), p.cname, fmtN(p.have), fmtN(p.camt),
+	local b0, b1 = plain and "**" or "<b>", plain and "**" or "</b>"
+	local l1 = ("%sNext Lv %d:%s %s %s crystal %s/%s   %s Coins %s/%s"):format(b0, p.lvl + 1, b1, mark(okC), short(p.cname), fmtN(p.have), fmtN(p.camt),
 		mark(okM), fmtN(p.coins), fmtN(p.ccost + p.keep))
 	local t = {}
-	for cn, amt in pairs(p.tot) do t[#t + 1] = ("%s %s / %s"):format(cn, fmtN(tonumber(p.mats[cn]) or 0), fmtN(amt)) end
+	for cn, amt in pairs(p.tot) do t[#t + 1] = ("%s %s/%s"):format(short(cn), fmtN(tonumber(p.mats[cn]) or 0), fmtN(amt)) end
 	table.sort(t)
-	lines[#lines + 1] = ("To Lv %d (%d levels): %s  ·  Coins %s"):format(p.target, p.target - p.lvl, table.concat(t, ", "), fmtN(p.totCoins))
-	return table.concat(lines, "\n")
+	local l2 = ("%sTo Lv %d:%s %s   Coins %s"):format(b0, p.target, b1, table.concat(t, ", "), fmtN(p.totCoins))
+	return l1 .. "\n" .. l2
 end
 M.statusCard = function()
 	local d = data()
@@ -7287,9 +7302,11 @@ M.statusCard = function()
 				lvTxt = ("**Lv %d** / %d%s%s"):format(l, target, (tonumber(cfg.target) or 0) > (lv.Level or 1) and (" (goal " .. cfg.target .. ")") or "", c.where ~= "bag" and ", in use" or ", in bag")
 			end
 			local st = (M.gearState or {})[sl.id]
-			goals[#goals + 1] = ("%s: %s - %s%s"):format(sl.title:gsub(" %(.-%)", ""), cfg.name, lvTxt, st and (" (" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "") .. ")") or "")
 			local plan = not sl.flat and #copies > 0 and M.upgradePlanText(sl.id, true)
-			if plan then goals[#goals + 1] = "  " .. plan:gsub("\n", "\n  ") end
+			goals[#goals + 1] = {
+				name = ("%s · %s"):format((sl.title:gsub(" %(.-%)", "")), cfg.name),
+				value = (lvTxt:gsub("%*%*", "**")) .. (plan and ("\n" .. plan) or (st and ("\n" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "")) or "")),
+			}
 		end
 	end
 	local mode = M.getMode and M.getMode() or "?"
@@ -7319,17 +7336,24 @@ M.statusCard = function()
 		{ name = "Hands", value = it(eq.Hands and eq.Hands[1]) .. "\n" .. it(eq.Hands and eq.Hands[2]), inline = true },
 		{ name = "Armor", value = it(eq.Armor), inline = true },
 		{ name = "Pet / Mount", value = it(eq.Companion) .. "\n" .. it(eq.Mount), inline = true },
-		{ name = "Gear Goals", value = #goals > 0 and table.concat(goals, "\n"):sub(1, 1020) or "-", inline = false },
+		{ name = "​", value = "**━━ Gear Goals ━━**", inline = false },
 		{ name = "Upgrade crystals", value = (function()
 			local t = {}
 			for k, v in pairs(d.Data.Inventory.Materials or {}) do
-				if tostring(k):find("Upgrade Crystal") then t[#t + 1] = ("%s: **%s**"):format(tostring(k):gsub(" Upgrade Crystal", ""), fmtN(v)) end
+				if tostring(k):find("Upgrade Crystal") then t[#t + 1] = ("%s **%s**"):format(tostring(k):gsub(" Upgrade Crystal", ""), fmtN(v)) end
 			end
 			table.sort(t)
-			return #t > 0 and table.concat(t, "\n") or "none"
+			return #t > 0 and table.concat(t, " · ") or "none"
 		end)(), inline = false },
 		{ name = "Now", value = tostring(statusLabel and statusLabel.Text or "-"):gsub("<[^>]+>", ""):sub(1, 200), inline = false },
 	}
+	-- v24j: each goal its own block, after the "Gear Goals" divider (crystals and Now stay last)
+	local at
+	for i, f in ipairs(fields) do if f.value == "**━━ Gear Goals ━━**" then at = i end end
+	if #goals == 0 then fields[at].value = "**━━ Gear Goals ━━**\n-" end
+	for k = #goals, 1, -1 do
+		table.insert(fields, at + 1, { name = goals[k].name, value = goals[k].value:sub(1, 1000), inline = false })
+	end
 	return {
 		username = "MOI HUB",
 		embeds = { {
