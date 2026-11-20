@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795198341
+--@@BUILD 1795198411
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24j"
+M.VERSION = "v24k"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6677,8 +6677,7 @@ do
 				if cname then
 					local t = {}
 					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss "):gsub("^Monster ", "") end end
-					local plan = M.upgradePlanText(sl.id)
-					return (plan and (plan .. "\n") or "") .. ("<font color=\"#7d857f\">%s crystals: %s</font>"):format(tostring(cname):gsub(" Upgrade Crystal", ""), table.concat(t, ", "))
+					return ("Next upgrade needs %s - from: %s"):format(hl(cname), table.concat(t, ", "))
 				end
 				return "Max level reached."
 			end
