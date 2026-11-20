@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795198981
+--@@BUILD 1795199283
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2035,6 +2035,7 @@ M.replayOk = function(inst)
 	if (g.IsCatacomb and g.IsCatacomb ~= false) or (g.IsBattleArena and g.IsBattleArena ~= false) then return false end
 	if (M.side.replayN or 0) >= n then return false end
 	if M._noQuestWork == false then return false end -- quests waiting at home come first
+	if M.dailyWorkLeft() then log("daily quests / boss still to do today - going out instead of playing again") return false end
 	-- v23z: a quest is ready to hand in (e.g. the boss we came for is dead): go back and turn it in instead of replaying
 	if M.on.turnin ~= false then
 		local ok, ready = pcall(function()
@@ -3561,6 +3562,7 @@ M.levelModeRun = function()
 	-- on a quest trip and the quest list found nothing (more) to do here: the trip is over, go home before dungeons / bosses
 	if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
 		M.questTripEnd("nothing (more) to do here")
+		if M.dailyWorkLeft() and M.oldQuestTick() then return true end
 		if M.backHome() then return true end
 	end
 	if M.backHome() then return true end
@@ -3672,6 +3674,7 @@ M.prioTick = function()
 		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and M.prioRun("quests", false) then return true end
 		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
 			M.questTripEnd("nothing (more) to do here")
+			if M.dailyWorkLeft() and M.oldQuestTick() then return true end -- v24o: straight on to the next map with dailies
 			if M.backHome() then return true end
 		end
 		if M.towerPrizeTick() then return true end
@@ -3689,6 +3692,7 @@ M.prioTick = function()
 		-- on a quest trip and the quest list found nothing (more) to do here: the trip is over, go home before dungeons / bosses
 		if M.side.questTrip and not M.inDungeon() and M.currentFloor() == M.side.questFloor and not M.questTripOpen() then
 			M.questTripEnd("nothing (more) to do here")
+			if M.dailyWorkLeft() and M.oldQuestTick() then return true end -- v24o: straight on to the next map with dailies
 			if M.backHome() then return true end
 		end
 	end
@@ -4422,6 +4426,35 @@ M.questTripHold = function()
 	if now - sd.questMoved > 600 then M.questTripEnd("no progress for 10 min") return false end
 	return true
 end
+-- v24o: when a daily was last handed in - the game's own record (RepeatableQuests) first, the script's note as a fallback
+M.dailyDoneAt = function(id)
+	local t = (M.side.dailyDone or {})[id] or 0
+	for _, r in pairs(RC._replicas) do
+		local rq = r.Data and r.Data.RepeatableQuests
+		if type(rq) == "table" and type(rq[id]) == "table" then t = math.max(t, tonumber(rq[id].CompletedAt) or 0) end
+	end
+	return t
+end
+-- a daily that could not be taken waits this long before the next try (1 h when once-a-day things come first)
+M.dailyRetryWait = function() return M.opt.dailiesFirst ~= false and 3600 or 6 * 3600 end
+-- v24o: once-a-day work still waiting (daily quests due on any map you can enter, or a daily boss)
+M.dailyWorkLeft = function()
+	if M.opt.dailiesFirst == false then return false end
+	if M.dailyNext and M.dailyNext() then return true end
+	if M.opt.dailyTour == false or not M.on.accept then return false end
+	local sd, now = M.side, os.time()
+	local book = M.questBookCached()
+	local prog = {}
+	for _, q in ipairs(quests()) do prog[q.ID] = true end
+	for _, f in ipairs(M.floorList()) do
+		local list = f.ok and book[tostring(f.n)]
+		for id, e in pairs(list or {}) do
+			local isDaily = tostring(id):find("Daily") or tostring(id):find("DAILY") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
+			if isDaily and not prog[id] and now - M.dailyDoneAt(id) > 86400 and now - ((sd.dailyTry or {})[id] or 0) > M.dailyRetryWait() then return true end
+		end
+	end
+	return false
+end
 -- story quests left on a lower map (not taken, or dropped when you went home): go there, take them, do them
 M.oldQuestTick = function()
 	if (M.opt.oldQuests == false and M.opt.dailyTour == false) or not M.on.accept then return false end
@@ -4443,7 +4476,8 @@ M.oldQuestTick = function()
 	sd.oldSkip = sd.oldSkip or {}
 	for _, f in ipairs(M.floorList()) do
 		local list = book[tostring(f.n)]
-		if f.ok and list and f.n ~= cur then
+		-- v24o: the map you stand on counts too (its dailies were never taken in Upgrade gear mode)
+		if f.ok and list and (f.n ~= cur or M.opt.dailiesFirst ~= false) then
 			local n, nd = 0, 0
 			sd.dailyDone, sd.dailyTry = sd.dailyDone or {}, sd.dailyTry or {}
 			local due = {}
@@ -4451,17 +4485,19 @@ M.oldQuestTick = function()
 				local isDaily = tostring(id):find("Daily") or tostring(id):find("DAILY") or tostring(e.t):find("Daily") or e.ty == "RandomKill"
 				if not isDaily and M.opt.oldQuests ~= false and not done[id] and not prog[id] and now >= (sd.oldSkip[id] or 0) then n += 1 end
 				-- a daily comes back 24 h after it was handed in; one that could not be taken waits 6 h before the next try
-				if isDaily and M.opt.dailyTour ~= false and not prog[id] and now - (sd.dailyDone[id] or 0) > 86400 and now - (sd.dailyTry[id] or 0) > 6 * 3600 then
+				if isDaily and M.opt.dailyTour ~= false and not prog[id] and now - M.dailyDoneAt(id) > 86400 and now - (sd.dailyTry[id] or 0) > M.dailyRetryWait() then
 					nd += 1
 					due[#due + 1] = id
 				end
 			end
 			if n + nd > 0 then
+				if f.n == cur and nd == 0 then continue end -- old story quests here are the normal quest turn's job
 				for _, id in ipairs(due) do sd.dailyTry[id] = now end
-				sd.oldQuestNext = now + 300
+				sd.oldQuestNext = now + (M.opt.dailiesFirst ~= false and 0 or 300)
 				sd.questTrip, sd.questFloor, sd.questMob, sd.questSum, sd.questMoved, sd.questSeenOpen = now, f.n, nil, nil, now, nil
 				M.saveState()
 				log(("map %d (%s): %d old quest(s), %d daily quest(s) to do - going there"):format(f.n, tostring(f.name), n, nd))
+				if f.n == cur then return true end -- already here: the quest turn takes them now
 				if M.travelTo(f.n, nd > 0 and n == 0 and "daily quests" or "old quests") then task.wait(20) return true end
 				M.questTripEnd("could not travel")
 				return false
@@ -5470,7 +5506,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24n"
+M.VERSION = "v24p"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -5947,6 +5983,8 @@ do
 	optToggle(b, "Go back for quests left on lower maps", "oldQuests")
 	if M.opt.dailyTour == nil then M.opt.dailyTour = true end
 	optToggle(b, "Daily quests on every map (once a day each)", "dailyTour")
+	if M.opt.dailiesFirst == nil then M.opt.dailiesFirst = true end
+	optToggle(b, "Once-a-day things first: all daily quests and daily bosses in one go, then back to the picked mode", "dailiesFirst")
 	optToggle(b, "Skip failed quests 30 min", "longSkip")
 	textRow(b, "One quest at a time: finish it, hand it in, take new ones, then the next.")
 	local t = card(L, "Teleports", "T")
