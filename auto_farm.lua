@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795199283
+--@@BUILD 1795214991
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -673,6 +673,20 @@ local function kill(mob, single)
 	local t0 = os.clock()
 	local lastProgress, lastHP = os.clock(), h.Health
 	local retreats = 0
+	-- v24q: big monsters we can't hurt: write down what the game shows (for working out why)
+	if h.MaxHealth >= 50000 and not M._dungeonRunning then
+		task.spawn(function()
+			local tS, mn, mx = os.clock(), h.Health, h.Health
+			while mob.Parent and os.clock() - tS < 14 do mn = math.min(mn, h.Health) mx = math.max(mx, h.Health) task.wait(0.15) end
+			local at = {}
+			for k, v in pairs(mob:GetAttributes()) do at[#at + 1] = k .. "=" .. tostring(v) end
+			for k, v in pairs(h:GetAttributes()) do at[#at + 1] = "h." .. k .. "=" .. tostring(v) end
+			local _, hrp = char()
+			local mp = mobPos(mob)
+			log(("probe %s: HP %d..%d of %d in 14 s, %d studs, ForceField=%s, %s"):format(mob.Name, mn, mx, h.MaxHealth,
+				(hrp and mp) and math.floor((hrp.Position - mp).Magnitude) or -1, tostring(mob:FindFirstChildOfClass("ForceField") ~= nil), table.concat(at, " ")))
+		end)
+	end
 	-- keep fighting while the mob keeps losing HP; give up only after 20 s without any damage (hard cap 5 min)
 	while M.running and (M.on.kill or M._dungeonRunning) and h.Health > 0 and mob.Parent and os.clock() - lastProgress < 20 and os.clock() - t0 < (single and 900 or 300)
 		and not (h.Health >= h.MaxHealth and os.clock() - t0 > 12 and not single) do
@@ -4437,11 +4451,25 @@ M.dailyDoneAt = function(id)
 end
 -- a daily that could not be taken waits this long before the next try (1 h when once-a-day things come first)
 M.dailyRetryWait = function() return M.opt.dailiesFirst ~= false and 3600 or 6 * 3600 end
+-- v24r: a quest already taken whose monster lives on another map (e.g. a Mission Board kill): where to go
+M.questAwayTarget = function()
+	local sd, now = M.side, os.time()
+	sd.questTried = sd.questTried or {}
+	local mf = M.loadDrops and ((M.loadDrops()).__mobFloor or {}) or {}
+	local okF = {}
+	for _, f in ipairs(M.floorList()) do okF[f.n] = f.ok end
+	local cur = M.currentFloor()
+	for _, q in ipairs(quests()) do
+		local fl = q.Objective == "Kill" and q.MobToKill and tonumber(mf[q.MobToKill])
+		if fl and okF[fl] and fl ~= cur and now - (sd.questTried[q.MobToKill] or 0) > 1800 then return q, fl end
+	end
+end
 -- v24o: once-a-day work still waiting (daily quests due on any map you can enter, or a daily boss)
 M.dailyWorkLeft = function()
 	if M.opt.dailiesFirst == false then return false end
 	if M.dailyNext and M.dailyNext() then return true end
 	if M.opt.dailyTour == false or not M.on.accept then return false end
+	if M.questAwayTarget() then return true end
 	local sd, now = M.side, os.time()
 	local book = M.questBookCached()
 	local prog = {}
@@ -4461,6 +4489,18 @@ M.oldQuestTick = function()
 	local sd, now = M.side, os.time()
 	if sd.questTrip or M.inDungeon() or M.onTrip() or now < (sd.oldQuestNext or 0) then return false end
 	if M.dailyNext and M.dailyNext() then return false end
+	if M.opt.dailiesFirst ~= false then
+		local q, fl = M.questAwayTarget()
+		if q then
+			sd.questTried[q.MobToKill] = now
+			sd.questTrip, sd.questMob, sd.questFloor, sd.questSum, sd.questMoved, sd.questSeenOpen = now, q.MobToKill, fl, nil, now, nil
+			M.saveState()
+			log(("quest %s: %s lives on map %d - going there"):format(tostring(q.Title or q.ID), tostring(q.MobToKill), fl))
+			if M.travelTo(fl, "quest " .. tostring(q.MobToKill)) then task.wait(20) return true end
+			M.questTripEnd("could not travel")
+			return false
+		end
+	end
 	local maxQ = 4
 	for _, r in pairs(RC._replicas) do
 		if r.Class == "Info" and r.Data._GameData then maxQ = tonumber(r.Data._GameData.MAX_QUESTS) or 4 end
@@ -5506,7 +5546,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24p"
+M.VERSION = "v24r"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
