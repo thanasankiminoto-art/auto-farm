@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795188552
+--@@BUILD 1795188866
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2379,9 +2379,24 @@ end
 -- what is never sold: favourites (the game's lock), anything picked on Gear Goals, names on the keep list,
 -- and everything at or above the "keep rarity"
 M.RARITY_RANK = { Common = 1, Uncommon = 2, Rare = 3, ["Super Rare"] = 4, Legendary = 5 }
+-- v24e: easy = drops from a dungeon / boss / monster the script can farm. Everything else (daily boss, Tower, eggs,
+-- Bleeter Bits boxes, crafting, events) is hard to get again and is never sold (market or shop) unless switched off.
+M._hardCache = {}
+M.hardToGet = function(name)
+	local c = M._hardCache[name]
+	if c and os.clock() - c.t < 600 then return c.v end
+	local easy = false
+	local ok, src = pcall(M.gearSources, name)
+	for _, x in ipairs(ok and src or {}) do
+		if (x.kind == "dungeon" or x.kind == "boss" or x.kind == "mob") and x.farm then easy = true break end
+	end
+	M._hardCache[name] = { v = not easy, t = os.clock() }
+	return not easy
+end
 M.keepItem = function(item, cls)
 	if type(item) ~= "table" then return true end
 	if item.Favorite then return true end
+	if M.opt.keepHard ~= false and (cls == "Weapons" or cls == "Armor") and M.hardToGet(item.Name) then return true end
 	if M.opt.mkSell and (cls == "Weapons" or cls == "Armor") then -- these rarities go to the market, not the shop
 		local def = ((gameInfo() or {})[cls] or {})[item.Name]
 		if def and (M.opt.mkRarities or {})[def.Rarity] then return true end
@@ -4760,6 +4775,7 @@ M.mkSellListNow = function()
 		for key, item in pairs(inv[cls] or {}) do
 			local def = (info[cls] or {})[item.Name]
 			if type(item) == "table" and def and rar[def.Rarity] and not item.Favorite and not item.Spawned and not picked(item.Name)
+				and not (M.opt.keepHard ~= false and M.hardToGet(item.Name))
 				and not (M.opt.keepNames or {})[item.Name] and not M.mkUntradeable(item.Name)
 				and not M.sameItem(item, eq.Hands and eq.Hands[1]) and not M.sameItem(item, eq.Hands and eq.Hands[2]) and not M.sameItem(item, eq.Armor) then
 				local sc = cls == "Weapons" and M.weaponScore(M.itemStats(item, "Weapons")) or M.armorScore(M.itemStats(item, "Armor"))
@@ -5444,7 +5460,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24d"
+M.VERSION = "v24e"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6389,6 +6405,8 @@ do
 
 	local s = card(R, "Sell On The Market", "S")
 	optToggle(s, "List items on the market (instead of selling them to the shop)", "mkSell")
+	if M.opt.keepHard == nil then M.opt.keepHard = true end
+	optToggle(s, "Never sell hard-to-get gear (only from a daily boss, Tower, egg, Bleeter Bits box, crafting or an event) - only easy dungeon / boss / monster drops are sold", "keepHard")
 	M.opt.mkRarities = M.opt.mkRarities or { ["Super Rare"] = true }
 	dropdownRow(s, "Rarities to list", function()
 		local o = {}
