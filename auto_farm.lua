@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795215442
+--@@BUILD 1795215872
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4463,7 +4463,7 @@ M.questAwayTarget = function()
 	local cur = M.currentFloor()
 	for _, q in ipairs(quests()) do
 		local fl = q.Objective == "Kill" and q.MobToKill and tonumber(mf[q.MobToKill])
-		if fl and okF[fl] and fl ~= cur and now - (sd.questTried[q.MobToKill] or 0) > 1800 then return q, fl end
+		if fl and okF[fl] and fl ~= cur and now - (sd.questTried[q.MobToKill] or 0) > 3 * 3600 then return q, fl end
 	end
 end
 -- v24o: once-a-day work still waiting (daily quests due on any map you can enter, or a daily boss)
@@ -5548,7 +5548,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24s"
+M.VERSION = "v24t"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
