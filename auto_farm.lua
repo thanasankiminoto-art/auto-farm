@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795198740
+--@@BUILD 1795198852
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24l"
+M.VERSION = "v24m"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -7250,7 +7250,7 @@ M.upgradePlanText = function(slId, plain)
 	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", "")) end
 	local okC = p.have >= p.camt
 	local okM = p.coins - p.ccost >= p.keep
-	local function mark(ok) if plain then return ok and "✅" or "❌" end return ok and '<font color="#7BE07B">✓</font>' or '<font color="#d65656">✗</font>' end
+	local function mark(ok) if plain then return ok and "✅" or "❌" end return ok and '<font color="#7BE07B">✓</font>' or '<font color="#d65656"><b>X</b></font>' end
 	local b0, b1 = plain and "**" or "<b>", plain and "**" or "</b>"
 	local l1 = ("%sNext Lv %d:%s %s %s crystal %s/%s   %s Coins %s/%s"):format(b0, p.lvl + 1, b1, mark(okC), short(p.cname), fmtN(p.have), fmtN(p.camt),
 		mark(okM), fmtN(p.coins), fmtN(p.ccost + p.keep))
@@ -7270,7 +7270,7 @@ M.upgradePlanUI = function(slId)
 	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", " crystal")) end
 	local function row(ok, label, have, need)
 		local c = ok and GRN or RED
-		return ('  <font color="%s">%s</font>  %s  <font color="%s"><b>%s</b></font> / %s'):format(c, ok and "✓" or "✗", label, c, fmtN(have), fmtN(need))
+		return ('  <font color="%s">%s</font>  %s  <font color="%s"><b>%s</b></font> / %s'):format(c, ok and "✓" or "<b>X</b>", label, c, fmtN(have), fmtN(need))
 	end
 	local L = {}
 	L[#L + 1] = ("<b>Next: Lv %d → %d</b>"):format(p.lvl, p.lvl + 1)
