@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795174701
+--@@BUILD 1795186670
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -3788,7 +3788,7 @@ M.gearSources = function(itemName)
 		local efl, e = M.eggFor(itemName)
 		if efl then
 			local pct = M.eggChance(itemName, e)
-			add("egg", nil, ("%s on map %d: %s Coins a roll%s - rolled with Coins only"):format(tostring(e.name), efl, tostring(e.c1), pct and (", %s%% each"):format(tostring(pct)) or ""), efl, false)
+			add("egg", nil, ("%s on map %d: %s Coins a roll%s - rolled with Coins only"):format(tostring(e.name), efl, tostring(e.c1), pct and (", %s%% each (about %d rolls)"):format(tostring(math.floor(pct * 100 + 0.5) / 100), math.ceil(100 / math.max(pct, 0.01))) or ""), efl, false)
 		end
 	end
 	if M.TOWER_PRIZES[itemName] then
@@ -3852,6 +3852,80 @@ M.howToGet = function(name)
 		h.note = '<font color="#d65656">Not in any egg, chest, drop or prize seen so far (an event item, or in the egg of a map not reached yet). Only the market for now.</font>'
 	end
 	return h
+end
+
+-- v24a: every way to get an item, one line each, with what it costs (free / Coins / Bleeter Bits) and whether the script does it
+M.MAP_NAMES = { "Sunshine Town", "Flywood Forest", "Silent Snowfields", "Desert of Death", "Lotus Lands", "Fish Funland" }
+M.boxChance = function(name, box)
+	local info = gameInfo() or {}
+	local ok, ch = pcall(function() return require(RS.Modules.RarityColors.Chances) end)
+	if not ok or not ch or type(box.Items) ~= "table" then return nil end
+	local function def(n) for _, c in ipairs({ "Mounts", "Companions", "Weapons", "Armor", "Overlays", "Auras" }) do local x = (info[c] or {})[n] if x then return x end end end
+	local me = def(name)
+	if not me or not me.Rarity then return nil end
+	local same = 0
+	for n in pairs(box.Items) do local x = def(n) if x and x.Rarity == me.Rarity then same += 1 end end
+	return (tonumber(ch[me.Rarity]) or 0) / math.max(1, same)
+end
+M.waysText = function(name)
+	if not name then return "" end
+	local G0 = '<font color="#7BE07B">'
+	local Y0 = '<font color="#E0B040">'
+	local B0 = '<font color="#6FB7FF">'
+	local D0 = '<font color="#7d857f">'
+	local E = "</font>"
+	local lines, pay = {}, {}
+	local function mapOf(fl) return fl and (M.MAP_NAMES[fl] or ("map " .. fl)) end
+	local info = gameInfo() or {}
+	for _, s in ipairs(M.gearSources(name)) do
+		local lock = s.ok and "" or (D0 .. " [map locked]" .. E)
+		local where = s.floor and (" - map " .. s.floor .. " " .. mapOf(s.floor)) or ""
+		local line
+		if s.kind == "dungeon" or s.kind == "boss" or s.kind == "mob" or s.kind == "daily" then
+			pay.free = true
+			local lbl = s.label:gsub(" %(.*%)$", "")
+			line = G0 .. "[Free]" .. E .. " " .. lbl .. where .. lock .. (s.farm and (G0 .. " - the script farms it" .. E) or (s.kind == "daily" and " - once a day (daily boss tour)" or ""))
+		elseif s.kind == "tower" then
+			pay.free = true
+			line = G0 .. "[Free]" .. E .. (" Tower prize, floor %d (once) - the script climbs for it"):format(M.TOWER_PRIZES[name] or 0)
+		elseif s.kind == "egg" then
+			pay.coins = true
+			line = Y0 .. "[Coins]" .. E .. " " .. s.label:gsub(" %- rolled with Coins only", "") .. (M.opt.eggRoll and (G0 .. " - the script rolls it" .. E) or (D0 .. " - rolling is off" .. E))
+		elseif s.kind == "chest" then
+			pay.free = true
+			line = G0 .. "[Free]" .. E .. " Skeleton Chest - Skeleton Keys you farm" .. (M.opt.eggRoll and (G0 .. " - the script rolls it" .. E) or (D0 .. " - rolling is off" .. E))
+		elseif s.kind == "box" then
+			pay.bits = true
+			local boxName = s.label:match("Shop box: (.-) %(") or s.label
+			local box
+			for _, boxes in pairs(info.Shop or {}) do if type(boxes) == "table" and type(boxes[boxName]) == "table" then box = boxes[boxName] end end
+			local pct = box and M.boxChance(name, box)
+			line = B0 .. "[Bleeter Bits]" .. E .. (" Shop box %s - %s each%s"):format(boxName, tostring(box and box.Buy1Price or "?"),
+				pct and (", %s%% a box (about %d boxes)"):format(tostring(math.floor(pct * 100 + 0.5) / 100), math.ceil(100 / math.max(pct, 0.01))) or "")
+				.. (M.opt.premiumBox and (G0 .. " - the script opens it" .. E) or (D0 .. " - off (Gear Goals > Bleeter Bits switch)" .. E))
+		elseif s.kind == "craft" then
+			pay.free = true
+			line = G0 .. "[Free]" .. E .. " " .. s.label .. D0 .. " - not done by the script" .. E
+		else
+			line = s.label .. D0 .. " - not done by the script" .. E
+		end
+		lines[#lines + 1] = "- " .. line
+	end
+	-- the market: always possible with Coins if someone sells it
+	pay.market = true
+	local x = (M.side.mkSeen or {})[name]
+	local mk
+	if not x then mk = "not looked up yet (looked up on each visit to Sunshine Town)"
+	elseif x.n == 0 or not x.low then mk = ("nobody sells it now (%d min ago)"):format(math.floor((os.time() - x.at) / 60))
+	else mk = ("%d on sale, cheapest %d Coins (%d min ago)"):format(x.n, x.low, math.floor((os.time() - x.at) / 60)) end
+	lines[#lines + 1] = "- " .. Y0 .. "[Coins]" .. E .. " Global Market (Sunshine Town): " .. mk
+	local p = {}
+	if pay.free then p[#p + 1] = G0 .. "free (farm)" .. E end
+	if pay.coins then p[#p + 1] = Y0 .. "Coins (egg)" .. E end
+	if pay.bits then p[#p + 1] = B0 .. "Bleeter Bits (box)" .. E end
+	p[#p + 1] = Y0 .. "Coins (market)" .. E
+	local head = (not pay.free and not pay.coins and pay.bits) and ("<b>Only from a Bleeter Bits box - or bought on the market with Coins</b>") or ("<b>Ways to get it:</b> " .. table.concat(p, " / "))
+	return head .. "\n" .. table.concat(lines, "\n")
 end
 
 -- every copy you own of an item: worn ones first if equal level
@@ -5368,7 +5442,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24"
+M.VERSION = "v24a"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6563,16 +6637,22 @@ do
 				end
 				return "Max level reached."
 			end
-			local src = M.gearSources(c.name)
-			if #src == 0 then return '<font color="#d65656">No known way to get it (event / removed item?).</font>' end
-			local t = {}
-			for i, s in ipairs(src) do
-				if i > 4 then break end
-				local fl = s.floor and (" - " .. (({ "Sunshine Town", "Flywood Forest", "Silent Snowfields", "Desert of Death", "Lotus Lands", "Fish Funland" })[s.floor] or ("floor " .. s.floor))) or ""
-				t[#t + 1] = (s.ok and "" or '<font color="#7d857f">[locked] </font>') .. s.label .. fl
-			end
-			return (sl.flat and "Comes from: " or "Drops from: ") .. table.concat(t, "; ")
+			return M.waysText(c.name)
 		end, 30)
+		-- v24a: farm / market / both right here
+		dropdownRow(b, "Get it by", function()
+			local c = cfg()
+			local h = M.howToGet(c and c.name)
+			if not h then return { { "farm", "Pick an item first" }, { "buy", "Buy on the market" } } end
+			if not h.farm then return { { "buy", "Market (Coins)" .. (M.opt.premiumBox and " + Bleeter Bits box" or "") }, { "farm", "Off - don't look for it" } } end
+			return { { "farm", h.farm }, { "buy", "Market only (Coins)" }, { "both", h.farmShort .. " + buy on the market if on sale" } }
+		end, function()
+			local c = cfg()
+			local g = c and c.get or "farm"
+			local h = M.howToGet(c and c.name)
+			if h and not h.farm and g == "both" then g = "buy" end
+			return g
+		end, function(v) local G = M.gearCfg() G[sl.id] = G[sl.id] or {} G[sl.id].get = v end)
 		-- target level
 		if not sl.flat then sliderRow(b, "Upgrade to level (0 = your level)", 0, 120, 1, function() local c = cfg() return c and c.target or 0 end, function(v)
 			local G = M.gearCfg()
