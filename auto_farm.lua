@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795198852
+--@@BUILD 1795198981
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24m"
+M.VERSION = "v24n"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -7242,23 +7242,27 @@ M.upgradePlan = function(slId)
 	end
 	return { lvl = lvl, target = target, cname = cname, camt = camt, have = tonumber(mats[cname]) or 0, ccost = ccost, coins = coins, keep = keep, tot = tot, totCoins = totCoins, mats = mats }
 end
-M.upgradePlanText = function(slId, plain)
+M.upgradePlanText = function(slId)
 	local p = M.upgradePlan(slId)
 	if not p then return nil end
-	if p.done then return ("Lv %d - goal Lv %d reached"):format(p.lvl, p.target) end
-	if p.max then return ("Lv %d - max level"):format(p.lvl) end
-	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", "")) end
-	local okC = p.have >= p.camt
-	local okM = p.coins - p.ccost >= p.keep
-	local function mark(ok) if plain then return ok and "✅" or "❌" end return ok and '<font color="#7BE07B">✓</font>' or '<font color="#d65656"><b>X</b></font>' end
-	local b0, b1 = plain and "**" or "<b>", plain and "**" or "</b>"
-	local l1 = ("%sNext Lv %d:%s %s %s crystal %s/%s   %s Coins %s/%s"):format(b0, p.lvl + 1, b1, mark(okC), short(p.cname), fmtN(p.have), fmtN(p.camt),
-		mark(okM), fmtN(p.coins), fmtN(p.ccost + p.keep))
-	local t = {}
-	for cn, amt in pairs(p.tot) do t[#t + 1] = ("%s %s/%s"):format(short(cn), fmtN(tonumber(p.mats[cn]) or 0), fmtN(amt)) end
-	table.sort(t)
-	local l2 = ("%sTo Lv %d:%s %s   Coins %s"):format(b0, p.target, b1, table.concat(t, ", "), fmtN(p.totCoins))
-	return l1 .. "\n" .. l2
+	if p.done then return ("✅ goal Lv %d reached"):format(p.target) end
+	if p.max then return "max level" end
+	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", " crystal")) end
+	local function row(ok, label, have, need) return ("%s %s **%s** / %s"):format(ok and "✅" or "❌", label, fmtN(have), fmtN(need)) end
+	local L = {}
+	L[#L + 1] = ("**Next: Lv %d → %d**"):format(p.lvl, p.lvl + 1)
+	L[#L + 1] = row(p.have >= p.camt, short(p.cname), p.have, p.camt)
+	L[#L + 1] = row(p.coins - p.ccost >= p.keep, "Coins", p.coins, p.ccost + p.keep)
+	L[#L + 1] = ("**Up to Lv %d** (%d levels)"):format(p.target, p.target - p.lvl)
+	local names = {}
+	for cn in pairs(p.tot) do names[#names + 1] = cn end
+	table.sort(names)
+	for _, cn in ipairs(names) do
+		local have = tonumber(p.mats[cn]) or 0
+		L[#L + 1] = row(have >= p.tot[cn], short(cn), have, p.tot[cn])
+	end
+	L[#L + 1] = row(p.coins >= p.totCoins, "Coins", p.coins, p.totCoins)
+	return table.concat(L, "\n")
 end
 -- v24l: the same plan for the script window, one short line per thing so it reads in a narrow card
 M.upgradePlanUI = function(slId)
@@ -7329,10 +7333,10 @@ M.statusCard = function()
 				lvTxt = ("**Lv %d** / %d%s%s"):format(l, target, (tonumber(cfg.target) or 0) > (lv.Level or 1) and (" (goal " .. cfg.target .. ")") or "", c.where ~= "bag" and ", in use" or ", in bag")
 			end
 			local st = (M.gearState or {})[sl.id]
-			local plan = not sl.flat and #copies > 0 and M.upgradePlanText(sl.id, true)
+			local plan = not sl.flat and #copies > 0 and M.upgradePlanText(sl.id)
 			goals[#goals + 1] = {
 				name = ("%s · %s"):format((sl.title:gsub(" %(.-%)", "")), cfg.name),
-				value = (lvTxt:gsub("%*%*", "**")) .. (plan and ("\n" .. plan) or (st and ("\n" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "")) or "")),
+				value = lvTxt .. (plan and ("\n" .. plan) or ((st and not sl.flat) and ("\n" .. tostring(st):gsub("^Lv %d+ %-> %d+: ", "")) or "")),
 			}
 		end
 	end
