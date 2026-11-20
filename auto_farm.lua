@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795128034
+--@@BUILD 1795154291
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -2035,6 +2035,16 @@ M.replayOk = function(inst)
 	if (g.IsCatacomb and g.IsCatacomb ~= false) or (g.IsBattleArena and g.IsBattleArena ~= false) then return false end
 	if (M.side.replayN or 0) >= n then return false end
 	if M._noQuestWork == false then return false end -- quests waiting at home come first
+	-- v23z: a quest is ready to hand in (e.g. the boss we came for is dead): go back and turn it in instead of replaying
+	if M.on.turnin ~= false then
+		local ok, ready = pcall(function()
+			for _, q in pairs(data().Data.Quests.QuestsInProgress or {}) do
+				if q.Objective == "Return" or q.Completed == true then return true end
+			end
+			return false
+		end)
+		if ok and ready then log("a quest is ready to hand in - going back instead of playing again") return false end
+	end
 	if M.dailyNext and M.dailyNext() then return false end -- a daily boss is due
 	if M.side.questTrip or M.side.mkCheckReq or M.side.scanLeft then return false end
 	if M.bagSize then -- bag nearly full: go sell
@@ -5292,7 +5302,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v23y"
+M.VERSION = "v23z"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
