@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795187706
+--@@BUILD 1795188346
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4163,7 +4163,7 @@ M.gearTick = function(force)
 					elseif (d.Data.Currencies.Coins or 0) - coins < (M.opt.keepCoins or 2000) then
 						M.gearState[sl.id] = ("Lv %d -> %d: waiting for coins (%d a level, have %d)"):format(lvl, target, coins, d.Data.Currencies.Coins or 0)
 						-- v24b: materials are there, only Coins are missing: farm where Coins come fastest
-						if M.opt.coinFarm ~= false then needs[#needs + 1] = { item = "Coins", slot = sl.id, mat = true, coins = true } end
+						if M.opt.coinFarm == true then needs[#needs + 1] = { item = "Coins", slot = sl.id, mat = true, coins = true } end
 					else
 						M.gearState[sl.id] = ("Lv %d -> %d: upgrading"):format(lvl, target)
 						M.gearUpgrade(sl, copy, target)
@@ -6802,7 +6802,7 @@ do
 	optToggle(h, "Wear the strongest gear, upgrade the picks in the bag until they are stronger", "wearStrongest")
 	if M.opt.eggRoll == nil then M.opt.eggRoll = false end
 	optToggle(h, "Roll eggs / Skeleton Chest for the picked pet / mount (Coins / Skeleton Keys only)", "eggRoll")
-	if M.opt.coinFarm == nil then M.opt.coinFarm = true end
+	if M.opt.coinFarm == nil then M.opt.coinFarm = false end
 	optToggle(h, "Upgrade gear: when only Coins are missing, farm where Coins come fastest (measured per place)", "coinFarm")
 	if M.opt.premiumBox == nil then M.opt.premiumBox = false end
 	optToggle(h, "Open shop boxes with Bleeter Bits for a picked pet / mount that only comes from a box (never Robux)", "premiumBox")
