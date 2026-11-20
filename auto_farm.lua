@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795198411
+--@@BUILD 1795198740
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -5470,7 +5470,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24k"
+M.VERSION = "v24l"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
@@ -6677,7 +6677,8 @@ do
 				if cname then
 					local t = {}
 					for i, s in ipairs(M.gearSources(cname)) do if i <= 4 and s.farm then t[#t + 1] = s.label:gsub("^Dungeon ", ""):gsub("^Boss ", "boss "):gsub("^Monster ", "") end end
-					return ("Next upgrade needs %s - from: %s"):format(hl(cname), table.concat(t, ", "))
+					local plan = M.upgradePlanUI(sl.id)
+					return (plan and (plan .. "\n") or "") .. ('<font color="#7d857f">%s crystals from: %s</font>'):format(tostring(cname):gsub(" Upgrade Crystal", ""), table.concat(t, ", "))
 				end
 				return "Max level reached."
 			end
@@ -7258,6 +7259,33 @@ M.upgradePlanText = function(slId, plain)
 	table.sort(t)
 	local l2 = ("%sTo Lv %d:%s %s   Coins %s"):format(b0, p.target, b1, table.concat(t, ", "), fmtN(p.totCoins))
 	return l1 .. "\n" .. l2
+end
+-- v24l: the same plan for the script window, one short line per thing so it reads in a narrow card
+M.upgradePlanUI = function(slId)
+	local p = M.upgradePlan(slId)
+	if not p then return nil end
+	if p.done then return ('<font color="#7BE07B">Goal Lv %d reached</font>'):format(p.target) end
+	if p.max then return "Max level" end
+	local GRN, RED, DIM = "#7BE07B", "#d65656", "#7d857f"
+	local function short(cn) return (tostring(cn):gsub(" Upgrade Crystal", " crystal")) end
+	local function row(ok, label, have, need)
+		local c = ok and GRN or RED
+		return ('  <font color="%s">%s</font>  %s  <font color="%s"><b>%s</b></font> / %s'):format(c, ok and "✓" or "✗", label, c, fmtN(have), fmtN(need))
+	end
+	local L = {}
+	L[#L + 1] = ("<b>Next: Lv %d → %d</b>"):format(p.lvl, p.lvl + 1)
+	L[#L + 1] = row(p.have >= p.camt, short(p.cname), p.have, p.camt)
+	L[#L + 1] = row(p.coins - p.ccost >= p.keep, "Coins", p.coins, p.ccost + p.keep)
+	L[#L + 1] = ('<b>Up to Lv %d</b> <font color="%s">(%d levels)</font>'):format(p.target, DIM, p.target - p.lvl)
+	local names = {}
+	for cn in pairs(p.tot) do names[#names + 1] = cn end
+	table.sort(names)
+	for _, cn in ipairs(names) do
+		local have = tonumber(p.mats[cn]) or 0
+		L[#L + 1] = row(have >= p.tot[cn], short(cn), have, p.tot[cn])
+	end
+	L[#L + 1] = row(p.coins >= p.totCoins, "Coins", p.coins, p.totCoins)
+	return table.concat(L, "\n")
 end
 M.statusCard = function()
 	local d = data()
