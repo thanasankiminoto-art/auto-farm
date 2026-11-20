@@ -94,7 +94,7 @@ end
 end
 task.wait(3)
 local __ok, __err = xpcall(function()
---@@BUILD 1795188435
+--@@BUILD 1795188552
 --// AUTO ALL v2 -- one button: unlock every TP, turn in / accept / do every quest
 --// Verified in-game:
 --//   turn in   : DialogEvents.CompleteQuest:FireServer(nil, questId)   (works from far away)
@@ -4895,7 +4895,9 @@ M.mkTripTick = function()
 	if M.dailyNext and M.dailyNext() and not sd.mkCheckReq then return false end
 	local why = sd.mkCheckReq and "check prices"
 	if not why and #M.mkBuyWants() > 0 then why = "buy for Gear Goals" end
-	if not why and M.opt.mkSell and #M.mkSellList() > 0 and ((sd.mkListed or 0) < 3 or (sd.mkNextFree and os.time() >= sd.mkNextFree)) then why = "list items for sale" end
+	-- v24d: sales can't be seen from other maps, so with all 3 slots full it looks again every 3 h (a sold slot is free again)
+	if not why and M.opt.mkSell and #M.mkSellList() > 0 and ((sd.mkListed or 0) < 3 or (sd.mkNextFree and os.time() >= sd.mkNextFree)
+		or os.time() - (sd.mkCheckedAt or 0) > 3 * 3600) then why = "list items for sale" end
 	if not why then return false end
 	sd.mkTripNext = os.time() + 3600
 	sd.scanTrip = os.time() -- the trip guards (home / next map) wait while it's in town
@@ -5442,7 +5444,7 @@ mk("Frame", { Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -14, 0, 0),
 mk("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.new(1, 0, 0, 0), BackgroundColor3 = C.line, BorderSizePixel = 0 }, side)
 
 local head = mk("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1 }, side)
-M.VERSION = "v24c"
+M.VERSION = "v24d"
 do
 	local hl0 = mk("ImageLabel", { Size = UDim2.new(0, 38, 0, 38), Position = UDim2.new(0, 13, 0, 12), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BorderSizePixel = 0, Image = "", ScaleType = Enum.ScaleType.Fit }, head)
 	corner(hl0, 9)
